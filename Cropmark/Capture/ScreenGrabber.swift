@@ -7,7 +7,7 @@ struct ScreenSnapshot {
     /// AppKit 坐标（y 向上）下的屏幕矩形，单位：点
     let frame: CGRect
     let scale: CGFloat
-    /// 全分辩率像素图，y 向下
+    /// 全分辨率像素图，y 向下
     let image: CGImage
 }
 
