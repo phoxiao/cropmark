@@ -51,14 +51,21 @@ struct AnnotationRenderer {
             ctx.addPath(brush)
             ctx.clip()
             Self.drawImage(img, in: CGRect(origin: .zero, size: screenSize), ctx: ctx)
-        case .text(let str, let origin, let s):
+        case .text(let str, let origin, let maxWidth, let s):
             let attr = Self.attributedText(str, style: s)
             let gc = NSGraphicsContext(cgContext: ctx, flipped: true)
             NSGraphicsContext.saveGraphicsState()
             NSGraphicsContext.current = gc
-            attr.draw(with: CGRect(origin: origin, size: attr.size()), options: [.usesLineFragmentOrigin])
+            attr.draw(with: Self.textRect(attr, origin: origin, maxWidth: maxWidth), options: [.usesLineFragmentOrigin])
             NSGraphicsContext.restoreGraphicsState()
         }
+    }
+
+    /// 文字在 maxWidth 内折行后占据的矩形。宽度固定为 maxWidth，保证绘制时的折行与测量一致。
+    static func textRect(_ attr: NSAttributedString, origin: CGPoint, maxWidth: CGFloat) -> CGRect {
+        let w = max(maxWidth, 1)
+        let h = attr.boundingRect(with: CGSize(width: w, height: .greatestFiniteMagnitude), options: [.usesLineFragmentOrigin]).height
+        return CGRect(origin: origin, size: CGSize(width: w, height: ceil(h)))
     }
 
     static func attributedText(_ s: String, style: Style) -> NSAttributedString {

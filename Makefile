@@ -20,6 +20,7 @@ icon: $(DERIVED)
 
 build: gen $(DERIVED)
 	$(XCB) -configuration Debug build 2>&1 | tee $(DERIVED)/build.log | grep -E "error:|warning: unre|BUILD (SUCCEEDED|FAILED)" || true
+	@grep -q "BUILD SUCCEEDED" $(DERIVED)/build.log || { echo "构建失败，详见 $(DERIVED)/build.log"; exit 1; }
 
 sign: build
 	@if [ -n "$(SIGN_ID)" ]; then codesign --force --deep --sign $(SIGN_ID) $(APP) && echo "signed with $(SIGN_ID)"; else echo "no Apple Development identity, keeping ad-hoc signature"; fi
@@ -32,6 +33,7 @@ stop:
 
 test: gen $(DERIVED)
 	$(XCB) test 2>&1 | tee $(DERIVED)/test.log | grep -E "error:|Test Case.*(passed|failed)|Executed|BUILD|TEST" || true
+	@grep -q "TEST SUCCEEDED" $(DERIVED)/test.log || { echo "测试失败，详见 $(DERIVED)/test.log"; exit 1; }
 
 install: sign stop
 	rm -rf /Applications/Cropmark.app

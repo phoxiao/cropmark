@@ -21,6 +21,20 @@ final class SelectionModelTests: XCTestCase {
         XCTAssertEqual(m.rect, CGRect(x: 900, y: 500, width: 100, height: 100))
     }
 
+    func testPointsSnapToPixelGridAt2x() {
+        var m = SelectionModel(bounds: bounds, scale: 2)
+        m.mouseDown(at: CGPoint(x: 10.3, y: 10.3))
+        m.mouseDragged(to: CGPoint(x: 110.6, y: 60.8))
+        m.mouseUp(at: CGPoint(x: 110.6, y: 60.8))
+        XCTAssertEqual(m.rect, CGRect(x: 10.5, y: 10.5, width: 100, height: 50.5))
+        // 悬停窗口的边也要吸附
+        var c = SelectionModel(bounds: bounds, scale: 2)
+        c.hoverRect = CGRect(x: 10.2, y: 20.7, width: 100.1, height: 50.1)
+        c.mouseDown(at: CGPoint(x: 50, y: 50))
+        c.mouseUp(at: CGPoint(x: 50, y: 50))
+        XCTAssertEqual(c.rect, CGRect(x: 10, y: 20.5, width: 100.5, height: 50.5))
+    }
+
     func testClickPicksHoveredWindow() {
         var m = SelectionModel(bounds: bounds)
         m.hoverRect = CGRect(x: 10, y: 20, width: 300, height: 200)

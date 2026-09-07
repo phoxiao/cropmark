@@ -1,4 +1,5 @@
 import XCTest
+import ScreenCaptureKit
 @testable import Cropmark
 
 final class WindowLocatorTests: XCTestCase {
@@ -82,10 +83,60 @@ final class MosaicTests: XCTestCase {
     }
 }
 
+final class ExporterTests: XCTestCase {
+    private func solid(w: Int, h: Int) -> CGImage {
+        let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
+                            space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        ctx.setFillColor(CGColor(gray: 0.5, alpha: 1)); ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
+        return ctx.makeImage()!
+    }
+
+    /// Retina 截图要按点尺寸声明 DPI，粘到尊重 DPI 的应用里才不会显示成两倍大
+    func testRetinaExportDeclaresPointSize() throws {
+        let img = solid(w: 100, h: 60)
+        let png = try XCTUnwrap(NSBitmapImageRep(data: try XCTUnwrap(Exporter.pngData(img, scale: 2))))
+        XCTAssertEqual(png.pixelsWide, 100)
+        XCTAssertEqual(png.pixelsHigh, 60)
+        XCTAssertEqual(png.size.width, 50, accuracy: 0.1)
+        XCTAssertEqual(png.size.height, 30, accuracy: 0.1)
+
+        let pb = NSPasteboard(name: NSPasteboard.Name("com.kivixiao.cropmark.tests.exporter"))
+        Exporter.copyToPasteboard(img, scale: 2, to: pb)
+        let tiff = try XCTUnwrap(NSBitmapImageRep(data: try XCTUnwrap(pb.data(forType: .tiff))))
+        XCTAssertEqual(tiff.size.width, 50, accuracy: 0.1)
+
+        let plain = try XCTUnwrap(NSBitmapImageRep(data: try XCTUnwrap(Exporter.pngData(img))))
+        XCTAssertEqual(plain.size.width, 100, accuracy: 0.1)
+    }
+}
+
+@MainActor
+final class CaptureFailureTests: XCTestCase {
+    func testUserDeclinedCountsAsPermissionProblem() {
+        let declined = NSError(domain: SCStreamErrorDomain, code: SCStreamError.Code.userDeclined.rawValue)
+        XCTAssertEqual(CaptureCoordinator.failure(for: declined), .permission)
+        XCTAssertNotEqual(CaptureCoordinator.failure(for: ScreenGrabError.noDisplays), .permission)
+        if case .other(let msg) = CaptureCoordinator.failure(for: NSError(domain: "x", code: 1)) {
+            XCTAssertTrue(msg.contains("重试"))
+        } else { XCTFail("generic error should map to .other") }
+    }
+}
+
+final class TextLayoutTests: XCTestCase {
+    func testNarrowWidthWrapsIntoMoreLines() {
+        let style = Style(color: .black, thickness: .medium)
+        let attr = AnnotationRenderer.attributedText("Cropmark Cropmark Cropmark", style: style)
+        let wide = AnnotationRenderer.textRect(attr, origin: .zero, maxWidth: 1000)
+        let narrow = AnnotationRenderer.textRect(attr, origin: .zero, maxWidth: 90)
+        XCTAssertEqual(narrow.width, 90)
+        XCTAssertGreaterThan(narrow.height, wide.height * 1.9, "narrow \(narrow) should be at least two lines vs \(wide)")
+    }
+}
+
 final class ImageComposerTests: XCTestCase {
     func testPixelRectScalesAndClamps() {
         let r = ImageComposer.pixelRect(for: CGRect(x: 10.4, y: 20.2, width: 100, height: 50), scale: 2, imageSize: CGSize(width: 400, height: 300))
-        XCTAssertEqual(r, CGRect(x: 20, y: 40, width: 201, height: 101))  // integral 向外取整
+        XCTAssertEqual(r, CGRect(x: 21, y: 40, width: 200, height: 100))  // 四条边各自四舍五入，宽高不会多 1 像素
         let clipped = ImageComposer.pixelRect(for: CGRect(x: 150, y: 100, width: 100, height: 100), scale: 2, imageSize: CGSize(width: 400, height: 300))
         XCTAssertEqual(clipped, CGRect(x: 300, y: 200, width: 100, height: 100))
     }

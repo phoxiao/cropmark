@@ -7,6 +7,7 @@ import XCTest
 final class OverlayFlowTests: XCTestCase {
     private let sRGB = CGColorSpace(name: CGColorSpace.sRGB)!
     private var finished = false
+    private var focusReturned = false
 
     /// 400×300 点 @1x：左半红、右半蓝
     private func makeSnapshot(boundary: Int = 200) -> ScreenSnapshot {
@@ -21,11 +22,21 @@ final class OverlayFlowTests: XCTestCase {
         let pb = NSPasteboard(name: NSPasteboard.Name("com.kivixiao.cropmark.tests"))
         pb.clearContents()
         finished = false
+        focusReturned = false
         let snapshot = makeSnapshot(boundary: boundary)
-        let session = CaptureSession(snapshots: [snapshot], windowList: windows) { [weak self] in self?.finished = true }
+        let session = CaptureSession(snapshots: [snapshot], windowList: windows,
+                                     returnFocus: { [weak self] in self?.focusReturned = true }) { [weak self] in self?.finished = true }
         session.pasteboard = pb
-        let window = OverlayWindow(snapshot: snapshot, session: session)
+        let window = session.makeWindows()[0]
         return (session, window, pb)
+    }
+
+    /// 两块并排的屏幕：第一屏 (0,0) 400×300，第二屏 (400,0) 400×300。
+    private func makeTwoScreenSession(windows: [LocatableWindow] = []) -> (CaptureSession, [OverlayWindow]) {
+        let s1 = makeSnapshot()
+        let s2 = ScreenSnapshot(screen: NSScreen.screens[0], frame: CGRect(x: 400, y: 0, width: 400, height: 300), scale: 1, image: s1.image)
+        let session = CaptureSession(snapshots: [s1, s2], windowList: windows) {}
+        return (session, session.makeWindows())
     }
 
     // 视图坐标（左上原点）→ 窗口坐标（左下原点）
@@ -71,6 +82,7 @@ final class OverlayFlowTests: XCTestCase {
         // Enter 完成
         view.keyDown(with: key(36, chars: "\r", in: window))
         XCTAssertTrue(finished)
+        XCTAssertTrue(focusReturned, "focus must go back to the app the user was using")
         withExtendedLifetime(session) {}
 
         let data = try XCTUnwrap(pb.data(forType: .png))
@@ -115,7 +127,125 @@ final class OverlayFlowTests: XCTestCase {
 
         view.keyDown(with: key(53, chars: "\u{1b}", in: window))
         XCTAssertTrue(finished)
+        XCTAssertTrue(focusReturned)
         XCTAssertNil(pb.data(forType: .png))
+    }
+
+    func testUnhandledKeyIsSwallowedAndCapsLockUndoWorks() {
+        let (session, window, _) = makeSession()
+        defer { withExtendedLifetime(session) {} }
+        let view = window.overlayView
+        drag(view, from: CGPoint(x: 10, y: 10), to: CGPoint(x: 390, y: 290), in: window)
+        view.selectToolForTesting(.pen)
+        drag(view, from: CGPoint(x: 60, y: 200), to: CGPoint(x: 220, y: 260), in: window)
+        view.keyDown(with: key(0, chars: "a", in: window))   // 随便一个键，不能崩也不该有副作用
+        XCTAssertEqual(view.annotationCount, 1)
+        XCTAssertEqual(view.currentSelection, CGRect(x: 10, y: 10, width: 380, height: 280))
+        view.keyDown(with: key(6, chars: "Z", flags: .command, in: window))   // 大写锁定下的 ⌘Z
+        XCTAssertEqual(view.annotationCount, 0)
+    }
+
+    func testCursorFollowsSelectionState() {
+        let (session, window, _) = makeSession()
+        defer { withExtendedLifetime(session) {} }
+        let view = window.overlayView
+        XCTAssertTrue(view.cursorForTesting(at: CGPoint(x: 50, y: 50)) === NSCursor.crosshair)
+        drag(view, from: CGPoint(x: 100, y: 100), to: CGPoint(x: 300, y: 200), in: window)
+        XCTAssertTrue(view.cursorForTesting(at: CGPoint(x: 150, y: 150)) === NSCursor.openHand, "inside selection: move")
+        XCTAssertTrue(view.cursorForTesting(at: CGPoint(x: 50, y: 50)) === NSCursor.crosshair, "outside: new selection")
+        let corner = view.cursorForTesting(at: CGPoint(x: 300, y: 200))
+        XCTAssertFalse(corner === NSCursor.openHand || corner === NSCursor.crosshair, "handle: resize cursor")
+        view.selectToolForTesting(.text)
+        XCTAssertTrue(view.cursorForTesting(at: CGPoint(x: 150, y: 150)) === NSCursor.iBeam)
+        XCTAssertTrue(view.cursorForTesting(at: CGPoint(x: 50, y: 50)) === NSCursor.crosshair)
+        view.selectToolForTesting(.rect)
+        XCTAssertTrue(view.cursorForTesting(at: CGPoint(x: 150, y: 150)) === NSCursor.crosshair)
+        XCTAssertTrue(view.cursorForTesting(at: CGPoint(x: 300, y: 200)) === NSCursor.crosshair, "tools disable handles")
+    }
+
+    // MARK: 多屏
+
+    func testSecondScreenSelectionMakesFirstBystanderAndRightClickClears() {
+        // 第二屏上有一个窗口：AppKit 坐标 (500,100) 100×50 → 第二屏视图坐标 (100,150) 100×50
+        let win = LocatableWindow(frame: CGRect(x: 500, y: 100, width: 100, height: 50), pid: 1)
+        let (session, windows) = makeTwoScreenSession(windows: [win])
+        defer { withExtendedLifetime(session) {} }
+        let (v1, v2) = (windows[0].overlayView, windows[1].overlayView)
+
+        v2.mouseMoved(with: mouse(.mouseMoved, CGPoint(x: 150, y: 170), in: windows[1]))
+        v2.mouseDown(with: mouse(.leftMouseDown, CGPoint(x: 150, y: 170), in: windows[1]))
+        v2.mouseUp(with: mouse(.leftMouseUp, CGPoint(x: 150, y: 170), in: windows[1]))
+        XCTAssertEqual(v2.currentSelection, CGRect(x: 100, y: 150, width: 100, height: 50))
+        XCTAssertTrue(v1.isBystander)
+        XCTAssertFalse(v2.isBystander)
+
+        // 旁观屏幕上左键无效
+        drag(v1, from: CGPoint(x: 10, y: 10), to: CGPoint(x: 100, y: 100), in: windows[0])
+        XCTAssertNil(v1.currentSelection)
+        XCTAssertEqual(v2.currentSelection, CGRect(x: 100, y: 150, width: 100, height: 50))
+
+        // 旁观屏幕上右键：清掉第二屏的选区，两屏都回到可框选状态，而不是取消整个会话
+        v1.rightMouseDown(with: mouse(.rightMouseDown, CGPoint(x: 10, y: 10), in: windows[0]))
+        XCTAssertNil(v2.currentSelection)
+        XCTAssertFalse(v2.isToolbarVisible)
+        XCTAssertFalse(v1.isBystander)
+        XCTAssertFalse(v2.isBystander)
+        XCTAssertFalse(session.windows.isEmpty, "session must still be alive")
+
+        drag(v1, from: CGPoint(x: 10, y: 10), to: CGPoint(x: 100, y: 100), in: windows[0])
+        XCTAssertEqual(v1.currentSelection, CGRect(x: 10, y: 10, width: 90, height: 90))
+        XCTAssertTrue(v2.isBystander)
+    }
+
+    func testResizingToZeroClearsSelectionAndBystanders() {
+        let (session, windows) = makeTwoScreenSession()
+        defer { withExtendedLifetime(session) {} }
+        let (v1, v2) = (windows[0].overlayView, windows[1].overlayView)
+        drag(v1, from: CGPoint(x: 100, y: 100), to: CGPoint(x: 200, y: 200), in: windows[0])
+        v1.selectToolForTesting(.rect)
+        drag(v1, from: CGPoint(x: 120, y: 120), to: CGPoint(x: 180, y: 180), in: windows[0])
+        v1.selectToolForTesting(nil)
+        XCTAssertEqual(v1.annotationCount, 1)
+        XCTAssertTrue(v2.isBystander)
+        // 把右下把手拖到左上角，选区变成零尺寸
+        drag(v1, from: CGPoint(x: 200, y: 200), to: CGPoint(x: 100, y: 100), in: windows[0])
+        XCTAssertNil(v1.currentSelection)
+        XCTAssertFalse(v1.isToolbarVisible)
+        XCTAssertEqual(v1.annotationCount, 0)
+        XCTAssertFalse(v2.isBystander, "other screens must leave bystander mode when the selection collapses")
+    }
+
+    func testTextToolWrapsAtSelectionEdgeAndExports() throws {
+        let (session, window, pb) = makeSession()
+        defer { withExtendedLifetime(session) {} }
+        let view = window.overlayView
+        drag(view, from: CGPoint(x: 50, y: 50), to: CGPoint(x: 250, y: 250), in: window)
+        view.selectToolForTesting(.text)
+        // 在 x=200 落笔，到选区右边 250 只剩 50 点宽，"Cropmark Cropmark" 必须折成多行
+        view.mouseDown(with: mouse(.leftMouseDown, CGPoint(x: 200, y: 100), in: window))
+        view.mouseUp(with: mouse(.leftMouseUp, CGPoint(x: 200, y: 100), in: window))
+        let editor = try XCTUnwrap(view.subviews.compactMap { $0 as? TextEditorOverlay }.first)
+        XCTAssertEqual(editor.maxWidth, 50)
+        editor.string = "Cropmark Cropmark"
+        editor.commit()
+        XCTAssertEqual(view.annotationCount, 1)
+        XCTAssertTrue(view.subviews.compactMap { $0 as? TextEditorOverlay }.isEmpty, "editor should be removed after commit")
+        guard case .text(let s, let origin, let maxWidth, _) = try XCTUnwrap(view.annotationsForTesting.first) else { return XCTFail("not text") }
+        XCTAssertEqual(s, "Cropmark Cropmark")
+        XCTAssertEqual(origin, CGPoint(x: 200, y: 100))
+        XCTAssertEqual(maxWidth, 50)
+
+        view.keyDown(with: key(36, chars: "\r", in: window))
+        let img = try XCTUnwrap(NSBitmapImageRep(data: try XCTUnwrap(pb.data(forType: .png)))?.cgImage)
+        // 底图 x≥200 是蓝色，文字默认红色。若没折行，第一行（约 22 点高）以下全是蓝；折行后第二行开始也应出现红色像素
+        var foundBelowFirstLine = false
+        for y in 75..<150 where !foundBelowFirstLine {
+            for x in 150..<200 {
+                let p = pixel(img, x: x, y: y)
+                if p[0] > 150 && p[2] < 120 { foundBelowFirstLine = true; break }
+            }
+        }
+        XCTAssertTrue(foundBelowFirstLine, "wrapped text should paint red pixels below the first line")
     }
 
     func testMosaicChangesPixelsInsideBrush() throws {
@@ -134,5 +264,79 @@ final class OverlayFlowTests: XCTestCase {
         XCTAssertEqual(pixel(img, x: 191, y: 20), [255, 0, 0], "far from brush must stay red")
         let onBrush = pixel(img, x: 191, y: 150)
         XCTAssertNotEqual(onBrush, [255, 0, 0], "pixel on the brush should be pixelated: \(onBrush)")
+    }
+}
+
+@MainActor
+final class ToolbarPanelTests: XCTestCase {
+    /// 选中马赛克时只有粗细一行，但这一行必须算进面板高度，否则悬在面板外点不到。
+    func testMosaicOptionRowStaysInsidePanel() {
+        let host = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 600, height: 400), styleMask: .borderless, backing: .buffered, defer: false)
+        let tb = ToolbarPanel()
+        host.contentView?.addSubview(tb)
+        let collapsed = tb.preferredSize.height
+        for tool in ToolKind.allCases {
+            tb.selectTool(tool)
+            XCTAssertEqual(tb.preferredSize.height, collapsed + ToolbarPanel.optionRowHeight, "\(tool)")
+            tb.frame = CGRect(origin: .zero, size: tb.preferredSize)
+            tb.layoutSubtreeIfNeeded()
+            for row in tb.subviews where !row.isHidden {
+                XCTAssertTrue(tb.bounds.contains(row.frame), "\(tool): row \(row.frame) outside panel \(tb.bounds)")
+            }
+        }
+        tb.selectTool(nil)
+        XCTAssertEqual(tb.preferredSize.height, collapsed)
+    }
+}
+
+@MainActor
+final class CaptureCoordinatorTests: XCTestCase {
+    private final class Probe {
+        var grabCount = 0
+        var release: CheckedContinuation<Void, Never>?
+    }
+
+    private func spin(until cond: () -> Bool) async {
+        for _ in 0..<2000 where !cond() { await Task.yield() }
+        XCTAssertTrue(cond(), "condition not reached")
+    }
+
+    /// 抓屏还没返回时再按一次快捷键必须被忽略，否则会留下一层关不掉的遮罩。
+    func testSecondBeginDuringGrabIsIgnored() async {
+        let probe = Probe()
+        let coordinator = CaptureCoordinator(ensurePermission: { true }) {
+            probe.grabCount += 1
+            await withCheckedContinuation { probe.release = $0 }
+            throw CancellationError()   // 不真正开会话，避免测试里弹出全屏覆盖窗
+        }
+        coordinator.begin()
+        coordinator.begin()
+        XCTAssertTrue(coordinator.isBusy)
+        await spin { probe.release != nil }
+        XCTAssertEqual(probe.grabCount, 1)
+
+        probe.release?.resume()
+        probe.release = nil
+        await spin { !coordinator.isBusy }
+        XCTAssertEqual(probe.grabCount, 1)
+
+        // 结束后可以重新开始
+        coordinator.begin()
+        await spin { probe.release != nil }
+        XCTAssertEqual(probe.grabCount, 2)
+        probe.release?.resume()
+        await spin { !coordinator.isBusy }
+    }
+
+    func testPermissionDeniedDoesNotGrab() async {
+        let probe = Probe()
+        let coordinator = CaptureCoordinator(ensurePermission: { false }) {
+            probe.grabCount += 1
+            throw CancellationError()
+        }
+        coordinator.begin()
+        XCTAssertFalse(coordinator.isBusy)
+        for _ in 0..<20 { await Task.yield() }
+        XCTAssertEqual(probe.grabCount, 0)
     }
 }

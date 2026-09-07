@@ -43,16 +43,18 @@ final class PreviewRenderTests: XCTestCase {
         let snap = gradientSnapshot()
         let session = CaptureSession(snapshots: [snap], windowList: [LocatableWindow(frame: CGRect(x: 150, y: 125, width: 250, height: 175), pid: 1)]) {}
         defer { withExtendedLifetime(session) {} }
-        let window = OverlayWindow(snapshot: snap, session: session)
+        let window = session.makeWindows()[0]
         let view = window.overlayView
+        // 底图在独立的一层，要渲染整个内容视图才能连底图一起看到
+        let canvas = try XCTUnwrap(window.contentView)
 
         // 1) 悬停识别窗口
         view.mouseMoved(with: mouse(.mouseMoved, CGPoint(x: 250, y: 150), in: window))
-        try save(view, "preview-1-hover.png")
+        try save(canvas, "preview-1-hover.png")
 
         // 2) 拖选后：把手 + 尺寸 + 工具栏
         drag(view, CGPoint(x: 120, y: 80), CGPoint(x: 480, y: 330), in: window)
-        try save(view, "preview-2-selected.png")
+        try save(canvas, "preview-2-selected.png")
 
         // 3) 标注：矩形、箭头、画笔、马赛克、文字，工具栏展开颜色面板
         view.selectToolForTesting(.rect)
@@ -64,7 +66,7 @@ final class PreviewRenderTests: XCTestCase {
         view.selectToolForTesting(.mosaic)
         drag(view, CGPoint(x: 180, y: 240), CGPoint(x: 280, y: 240), in: window)
         view.selectToolForTesting(.ellipse)
-        try save(view, "preview-3-annotated.png")
+        try save(canvas, "preview-3-annotated.png")
 
         // 导出结果
         view.keyDown(with: NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber,
@@ -73,6 +75,6 @@ final class PreviewRenderTests: XCTestCase {
         XCTAssertEqual(img.width, 720)   // 360pt × 2
         XCTAssertEqual(img.height, 500)
         let dir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Caches/CropmarkBuild")
-        try XCTUnwrap(Exporter.pngData(img)).write(to: dir.appendingPathComponent("preview-4-export.png"))
+        try XCTUnwrap(Exporter.pngData(img, scale: 2)).write(to: dir.appendingPathComponent("preview-4-export.png"))
     }
 }

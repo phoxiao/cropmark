@@ -4,14 +4,18 @@ import AppKit
 final class TextEditorOverlay: NSTextView {
     var onCommit: ((String) -> Void)?
     var onCancel: (() -> Void)?
+    /// 提交时使用的样式；编辑中改颜色/粗细会同步到这里
+    private(set) var annotationStyle = Style(color: Palette.colors[0], thickness: .medium)
+    /// 折行宽度（点），从落点到选区右边界
+    private(set) var maxWidth: CGFloat = 0
 
     static func make(at origin: CGPoint, style: Style, maxWidth: CGFloat) -> TextEditorOverlay {
-        let tv = TextEditorOverlay(frame: NSRect(origin: origin, size: CGSize(width: max(maxWidth, 40), height: style.thickness.fontSize * 1.5)))
+        let width = max(maxWidth, 40)
+        let tv = TextEditorOverlay(frame: NSRect(origin: origin, size: CGSize(width: width, height: style.thickness.fontSize * 1.5)))
+        tv.maxWidth = width
         tv.isRichText = false
         tv.drawsBackground = false
-        tv.font = NSFont.systemFont(ofSize: style.thickness.fontSize, weight: .medium)
-        tv.textColor = style.color
-        tv.insertionPointColor = style.color
+        tv.apply(style: style)
         tv.isVerticallyResizable = true
         tv.isHorizontallyResizable = false
         tv.textContainerInset = .zero
@@ -32,6 +36,13 @@ final class TextEditorOverlay: NSTextView {
         case 36 where !event.modifierFlags.contains(.shift): commit()
         default: super.keyDown(with: event)
         }
+    }
+
+    func apply(style: Style) {
+        annotationStyle = style
+        font = NSFont.systemFont(ofSize: style.thickness.fontSize, weight: .medium)
+        textColor = style.color
+        insertionPointColor = style.color
     }
 
     func commit() {

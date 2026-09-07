@@ -34,6 +34,7 @@ final class ToolbarPanel: NSView {
     private var toolButtons: [ToolKind: ToolButton] = [:]
     private var thicknessButtons: [ToolButton] = []
     private var colorButtons: [ToolButton] = []
+    private var optionSeparator: Separator!
     private var undoButton: ToolButton!
 
     static let rowHeight: CGFloat = 36
@@ -87,7 +88,8 @@ final class ToolbarPanel: NSView {
             thicknessButtons.append(b)
             optionRow.addArrangedSubview(b)
         }
-        optionRow.addArrangedSubview(Separator())
+        optionSeparator = Separator()
+        optionRow.addArrangedSubview(optionSeparator)
         for c in Palette.colors {
             let b = ToolButton(symbol: nil, tooltip: "") { [weak self] in self?.setColor(c) }
             b.swatch = c
@@ -109,10 +111,11 @@ final class ToolbarPanel: NSView {
 
     var canUndo: Bool = false { didSet { undoButton.isEnabled = canUndo } }
 
-    /// 当前需要的整体尺寸
+    /// 当前需要的整体尺寸。选中任何工具都展开选项行（马赛克只有粗细），高度必须与 updateVisibility 一致，
+    /// 否则选项行会悬在面板之外、点不到。
     var preferredSize: CGSize {
         let w = mainRow.fittingSize.width
-        let h = Self.rowHeight + (selectedTool == nil || selectedTool == .mosaic ? 0 : Self.optionRowHeight)
+        let h = Self.rowHeight + (selectedTool == nil ? 0 : Self.optionRowHeight)
         return CGSize(width: w, height: h)
     }
 
@@ -135,10 +138,11 @@ final class ToolbarPanel: NSView {
     }
 
     private func updateVisibility() {
-        optionRow.isHidden = (selectedTool == nil || selectedTool == .mosaic)
-        // 马赛克只关心粗细
-        if selectedTool == .mosaic { optionRow.isHidden = false }
-        for b in colorButtons { b.isHidden = (selectedTool == .mosaic) }
+        optionRow.isHidden = (selectedTool == nil)
+        // 马赛克只关心粗细，颜色和分隔线一起藏起来
+        let mosaic = (selectedTool == .mosaic)
+        optionSeparator.isHidden = mosaic
+        for b in colorButtons { b.isHidden = mosaic }
         invalidateIntrinsicContentSize()
     }
 

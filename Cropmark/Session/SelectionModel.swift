@@ -22,13 +22,19 @@ struct SelectionModel {
     static let clickThreshold: CGFloat = 3
 
     let bounds: CGRect
+    /// 屏幕缩放倍数。所有落点吸附到 1/scale 的网格上，这样选区边缘正好落在像素边界，
+    /// 屏幕上显示的尺寸和导出图的像素尺寸才会一致。
+    let scale: CGFloat
     private(set) var phase: Phase = .idle
     /// 已确定或正在拖出的选区
     private(set) var rect: CGRect?
     /// 光标悬停识别出的候选窗口
     var hoverRect: CGRect?
 
-    init(bounds: CGRect) { self.bounds = bounds }
+    init(bounds: CGRect, scale: CGFloat = 1) {
+        self.bounds = bounds
+        self.scale = max(scale, 1)
+    }
 
     var isSelected: Bool { phase == .selected }
     var hasSelection: Bool { rect != nil }
@@ -67,8 +73,8 @@ struct SelectionModel {
         case .moving(let offset):
             guard let r = rect else { return }
             var origin = CGPoint(x: p.x - offset.x, y: p.y - offset.y)
-            origin.x = min(max(origin.x, bounds.minX), bounds.maxX - r.width)
-            origin.y = min(max(origin.y, bounds.minY), bounds.maxY - r.height)
+            origin.x = snap(min(max(origin.x, bounds.minX), bounds.maxX - r.width))
+            origin.y = snap(min(max(origin.y, bounds.minY), bounds.maxY - r.height))
             rect = CGRect(origin: origin, size: r.size)
         case .idle, .selected:
             break
@@ -81,7 +87,7 @@ struct SelectionModel {
             let moved = hypot(p.x - anchor.x, p.y - anchor.y)
             if moved < Self.clickThreshold {
                 // 单击：采用悬停窗口，没有就整屏
-                rect = hoverRect ?? bounds
+                rect = hoverRect.map(snapped) ?? bounds
             } else {
                 rect = Self.normalized(anchor, clamp(p))
             }
@@ -107,8 +113,16 @@ struct SelectionModel {
         CGRect(x: min(a.x, b.x), y: min(a.y, b.y), width: abs(a.x - b.x), height: abs(a.y - b.y))
     }
 
+    /// 限制在屏幕内并吸附到像素网格
     func clamp(_ p: CGPoint) -> CGPoint {
-        CGPoint(x: min(max(p.x, bounds.minX), bounds.maxX), y: min(max(p.y, bounds.minY), bounds.maxY))
+        CGPoint(x: snap(min(max(p.x, bounds.minX), bounds.maxX)), y: snap(min(max(p.y, bounds.minY), bounds.maxY)))
+    }
+
+    func snap(_ v: CGFloat) -> CGFloat { (v * scale).rounded() / scale }
+
+    func snapped(_ r: CGRect) -> CGRect {
+        let x0 = snap(r.minX), y0 = snap(r.minY), x1 = snap(r.maxX), y1 = snap(r.maxY)
+        return CGRect(x: x0, y: y0, width: x1 - x0, height: y1 - y0)
     }
 
     static func handleCenter(_ h: Handle, of r: CGRect) -> CGPoint {

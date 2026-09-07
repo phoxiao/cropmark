@@ -63,7 +63,8 @@ enum Annotation {
     case arrow(from: CGPoint, to: CGPoint, Style)
     case pen([CGPoint], Style)
     case mosaic([CGPoint], Thickness)
-    case text(String, origin: CGPoint, Style)
+    /// maxWidth：折行宽度（点），与就地编辑框一致，导出才能所见即所得
+    case text(String, origin: CGPoint, maxWidth: CGFloat, Style)
 }
 
 /// 标注列表 + 撤销。

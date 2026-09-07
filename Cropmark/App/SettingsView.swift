@@ -1,11 +1,31 @@
 import AppKit
 import SwiftUI
+import ServiceManagement
 import KeyboardShortcuts
 
 struct SettingsView: View {
     @State private var playSound = Preferences.playSound
-    @State private var launchAtLogin = Preferences.launchAtLogin
+    @State private var launchStatus = Preferences.launchAtLoginStatus
     @State private var hasPermission = PermissionGuard.hasScreenCaptureAccess
+    @State private var shortcutText = SettingsView.shortcutDescription
+
+    private var launchAtLogin: Binding<Bool> {
+        Binding(
+            get: { launchStatus == .enabled },
+            set: { on in
+                Preferences.launchAtLogin = on
+                launchStatus = Preferences.launchAtLoginStatus
+                // 系统要求用户手动批准时，直接带到「登录项」页面
+                if on, launchStatus == .requiresApproval { SMAppService.openSystemSettingsLoginItems() }
+            }
+        )
+    }
+
+    private var launchFooter: String? {
+        launchStatus == .requiresApproval
+            ? "系统要求在「登录项与扩展」里手动允许 Cropmark，允许后这里会自动变为开启。"
+            : nil
+    }
 
     static let width: CGFloat = 480
 
@@ -14,21 +34,17 @@ struct SettingsView: View {
             header
             SettingsSection(title: "快捷键", footer: "若其他应用占用了同一快捷键，二者会互相抢键：在对方设置里改掉，或在这里换一个。") {
                 SettingsRow("截图快捷键") {
-                    KeyboardShortcuts.Recorder(for: .capture)
+                    KeyboardShortcuts.Recorder(for: .capture) { _ in shortcutText = Self.shortcutDescription }
                 }
             }
-            SettingsSection(title: "行为") {
+            SettingsSection(title: "行为", footer: launchFooter) {
                 SettingsRow("截图完成后播放提示音") {
                     Toggle("", isOn: $playSound).labelsHidden().toggleStyle(.switch)
                         .onChange(of: playSound) { _, v in Preferences.playSound = v }
                 }
                 Divider().padding(.leading, 14)
                 SettingsRow("登录时自动启动") {
-                    Toggle("", isOn: $launchAtLogin).labelsHidden().toggleStyle(.switch)
-                        .onChange(of: launchAtLogin) { _, v in
-                            Preferences.launchAtLogin = v
-                            launchAtLogin = Preferences.launchAtLogin
-                        }
+                    Toggle("", isOn: launchAtLogin).labelsHidden().toggleStyle(.switch)
                 }
             }
             SettingsSection(title: "权限", footer: hasPermission ? nil : "授权后回到任意界面重新按快捷键即可，不需要重启应用。") {
@@ -67,7 +83,9 @@ struct SettingsView: View {
         .background(Color(nsColor: .windowBackgroundColor))
         .onAppear { hasPermission = PermissionGuard.hasScreenCaptureAccess }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            // 用户可能刚从系统设置回来：权限和登录项状态都重新读一次
             hasPermission = PermissionGuard.hasScreenCaptureAccess
+            launchStatus = Preferences.launchAtLoginStatus
         }
     }
 
@@ -77,13 +95,17 @@ struct SettingsView: View {
                 .resizable().frame(width: 56, height: 56)
             VStack(alignment: .leading, spacing: 3) {
                 Text("Cropmark").font(.title2.weight(.semibold))
-                Text("轻量截图工具，随时按 \(KeyboardShortcuts.getShortcut(for: .capture)?.description ?? "⌃⌘A") 截图、标注、复制")
+                Text("轻量截图工具，随时按 \(shortcutText) 截图、标注、复制")
                     .font(.callout).foregroundStyle(.secondary)
                 Text("版本 \(Self.version)")
                     .font(.caption).foregroundStyle(.tertiary)
             }
         }
         .padding(.bottom, 2)
+    }
+
+    static var shortcutDescription: String {
+        KeyboardShortcuts.getShortcut(for: .capture)?.description ?? "未设置"
     }
 
     static let repoURL = "https://github.com/phoxiao/cropmark"
@@ -206,6 +228,8 @@ struct KeyCap: View {
 }
 
 final class SettingsWindowController: NSWindowController {
+    private var hasPositioned = false
+
     convenience init() {
         let hosting = NSHostingController(rootView: SettingsView())
         let window = NSWindow(contentViewController: hosting)
@@ -219,7 +243,8 @@ final class SettingsWindowController: NSWindowController {
 
     func show() {
         NSApp.activate(ignoringOtherApps: true)
-        window?.center()
+        // 只在第一次打开时居中，之后尊重用户拖到的位置
+        if !hasPositioned { window?.center(); hasPositioned = true }
         window?.makeKeyAndOrderFront(nil)
     }
 }

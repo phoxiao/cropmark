@@ -2,12 +2,13 @@ import AppKit
 
 /// 把冻结底图按选区裁剪，叠上标注，输出像素图。
 enum ImageComposer {
-    /// 视图坐标（点，y 向下）→ 像素矩形，并对齐到整数像素、裁进图片范围。
+    /// 视图坐标（点，y 向下）→ 像素矩形：四条边各自四舍五入到整数像素，再裁进图片范围。
+    /// 不用 `.integral`（向外取整），否则 0.5 点的边会让导出图比屏幕上显示的尺寸多 1 像素。
     static func pixelRect(for viewRect: CGRect, scale: CGFloat, imageSize: CGSize) -> CGRect {
-        var r = CGRect(x: viewRect.minX * scale, y: viewRect.minY * scale,
-                       width: viewRect.width * scale, height: viewRect.height * scale).integral
-        r = r.intersection(CGRect(origin: .zero, size: imageSize))
-        return r
+        let x0 = (viewRect.minX * scale).rounded(), y0 = (viewRect.minY * scale).rounded()
+        let x1 = (viewRect.maxX * scale).rounded(), y1 = (viewRect.maxY * scale).rounded()
+        let r = CGRect(x: x0, y: y0, width: x1 - x0, height: y1 - y0)
+        return r.intersection(CGRect(origin: .zero, size: imageSize))
     }
 
     static func compose(snapshot: ScreenSnapshot,

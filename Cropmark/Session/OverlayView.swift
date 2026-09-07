@@ -28,7 +28,7 @@ final class OverlayView: NSView {
         self.snapshot = snapshot
         self.session = session
         let b = CGRect(origin: .zero, size: snapshot.frame.size)
-        self.selection = SelectionModel(bounds: b)
+        self.selection = SelectionModel(bounds: b, scale: snapshot.scale)
         super.init(frame: b)
         wantsLayer = true
         addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
@@ -41,8 +41,12 @@ final class OverlayView: NSView {
             self.tool = t
             self.layoutToolbar()
             self.needsDisplay = true
+            self.refreshCursor()
         }
-        toolbar.onStyleChange = { [weak self] s in self?.style = s }
+        toolbar.onStyleChange = { [weak self] s in
+            self?.style = s
+            self?.textEditor?.apply(style: s)
+        }
         toolbar.onAction = { [weak self] a in
             guard let self else { return }
             switch a {
@@ -61,7 +65,10 @@ final class OverlayView: NSView {
     var currentSelection: CGRect? { selection.rect }
     var isToolbarVisible: Bool { !toolbar.isHidden }
     var annotationCount: Int { store.items.count }
+    var annotationsForTesting: [Annotation] { store.items }
+    var isBystander: Bool { bystander }
     func selectToolForTesting(_ t: ToolKind?) { toolbar.selectTool(t) }
+    func cursorForTesting(at p: CGPoint) -> NSCursor { cursor(at: p) }
 
     // MARK: 旁观（其他屏幕已有选区）
 
@@ -93,13 +100,17 @@ final class OverlayView: NSView {
     override func mouseEntered(with event: NSEvent) {
         guard !bystander else { return }
         if session?.activeView == nil { window?.makeKey() }
-        updateHover(at: convert(event.locationInWindow, from: nil))
+        let p = convert(event.locationInWindow, from: nil)
+        updateHover(at: p)
+        cursor(at: p).set()
     }
     override func mouseExited(with event: NSEvent) {
         if !selection.hasSelection { selection.hoverRect = nil; needsDisplay = true }
     }
     override func mouseMoved(with event: NSEvent) {
-        updateHover(at: convert(event.locationInWindow, from: nil))
+        let p = convert(event.locationInWindow, from: nil)
+        updateHover(at: p)
+        cursor(at: p).set()
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -117,6 +128,7 @@ final class OverlayView: NSView {
         }
         let hadSelection = selection.hasSelection
         selection.mouseDown(at: p)
+        if case .moving = selection.phase { NSCursor.closedHand.set() }
         if case .dragging = selection.phase {
             // 重新框选：丢弃旧标注
             store.removeAll()
@@ -146,27 +158,47 @@ final class OverlayView: NSView {
         if inProgress != nil || drawAnchor != nil {
             endDrawing(at: p, shift: event.modifierFlags.contains(.shift))
         } else {
+            let hadSelection = selection.hasSelection
             selection.mouseUp(at: p)
-            if selection.isSelected { layoutToolbar(); toolbar.isHidden = false }
+            if selection.isSelected {
+                layoutToolbar(); toolbar.isHidden = false
+            } else if hadSelection {
+                // 把手被拖到零宽/零高，选区消失：标注、旁观状态一起清掉
+                resetSelection()
+            }
         }
+        cursor(at: p).set()
         needsDisplay = true
     }
 
     override func rightMouseDown(with event: NSEvent) {
         if textEditor != nil { commitTextEditor(); return }
-        if selection.hasSelection {
-            selection.clearSelection()
-            store.removeAll()
-            toolbar.canUndo = false
-            toolbar.deselectTool()
-            tool = nil
-            toolbar.isHidden = true
-            session?.selectionDidClear()
-            updateHover(at: convert(event.locationInWindow, from: nil))
-            needsDisplay = true
+        let p = convert(event.locationInWindow, from: nil)
+        if bystander {
+            // 选区在别的屏幕上：右键清掉它，回到所有屏幕都可框选的状态
+            session?.clearSelection()
+            updateHover(at: p)
+            cursor(at: p).set()
+        } else if selection.hasSelection {
+            resetSelection()
+            updateHover(at: p)
+            cursor(at: p).set()
         } else {
             session?.cancel()
         }
+    }
+
+    /// 清掉选区和标注，退出工具，通知其他屏幕结束旁观。
+    func resetSelection() {
+        commitTextEditor()
+        selection.clearSelection()
+        store.removeAll()
+        toolbar.canUndo = false
+        toolbar.deselectTool()
+        tool = nil
+        toolbar.isHidden = true
+        session?.selectionDidClear()
+        needsDisplay = true
     }
 
     override func keyDown(with event: NSEvent) {
@@ -175,13 +207,49 @@ final class OverlayView: NSView {
         case 53: session?.cancel()                                    // Esc
         case 36, 76: if selection.isSelected { finish(save: false) } // Return / Enter
         default:
-            if cmd, event.charactersIgnoringModifiers == "z" { undo() }
-            else if cmd, event.charactersIgnoringModifiers == "s", selection.isSelected { finish(save: true) }
-            else { super.keyDown(with: event) }
+            let ch = event.charactersIgnoringModifiers?.lowercased()
+            if cmd, ch == "z" { undo() }
+            else if cmd, ch == "s", selection.isSelected { finish(save: true) }
+            // 其他按键直接吞掉：交给 super 会响系统提示音
         }
     }
 
-    override func resetCursorRects() { addCursorRect(bounds, cursor: .crosshair) }
+    // MARK: 光标
+
+    /// 不用 cursorRect（把手区域会互相重叠），改为在鼠标移动时按状态设置。
+    private func refreshCursor() {
+        guard let window else { return }
+        cursor(at: convert(window.mouseLocationOutsideOfEventStream, from: nil)).set()
+    }
+
+    private func cursor(at p: CGPoint) -> NSCursor {
+        guard !bystander, selection.isSelected, let r = selection.rect else { return .crosshair }
+        if let tool { return tool == .text && r.contains(p) ? .iBeam : .crosshair }
+        if let h = SelectionModel.handle(at: p, of: r) { return Self.resizeCursor(for: h) }
+        return r.contains(p) ? .openHand : .crosshair
+    }
+
+    private static func resizeCursor(for h: Handle) -> NSCursor {
+        if #available(macOS 15, *) {
+            let position: NSCursor.FrameResizePosition
+            switch h {
+            case .topLeft: position = .topLeft
+            case .top: position = .top
+            case .topRight: position = .topRight
+            case .right: position = .right
+            case .bottomRight: position = .bottomRight
+            case .bottom: position = .bottom
+            case .bottomLeft: position = .bottomLeft
+            case .left: position = .left
+            }
+            return .frameResize(position: position, directions: .all)
+        }
+        switch h {
+        case .left, .right: return .resizeLeftRight
+        case .top, .bottom: return .resizeUpDown
+        default: return .crosshair
+        }
+    }
 
     // MARK: 绘制标注
 
@@ -197,7 +265,7 @@ final class OverlayView: NSView {
             let editor = TextEditorOverlay.make(at: p, style: style, maxWidth: r.maxX - p.x)
             editor.onCommit = { [weak self, weak editor] s in
                 guard let self, let editor else { return }
-                self.store.append(.text(s, origin: editor.frame.origin, self.style))
+                self.store.append(.text(s, origin: editor.frame.origin, maxWidth: editor.maxWidth, editor.annotationStyle))
                 self.toolbar.canUndo = true
                 self.removeTextEditor()
             }
@@ -284,14 +352,14 @@ final class OverlayView: NSView {
         guard let img = ImageComposer.compose(snapshot: snapshot, selection: r, annotations: store.items, renderer: renderer) else {
             session?.cancel(); return
         }
-        if save { session?.save(img) } else { session?.complete(with: img) }
+        if save { session?.save(img, scale: snapshot.scale) } else { session?.complete(with: img, scale: snapshot.scale) }
     }
 
     // MARK: 绘制
 
     override func draw(_ dirtyRect: NSRect) {
         guard let ctx = NSGraphicsContext.current?.cgContext else { return }
-        AnnotationRenderer.drawImage(snapshot.image, in: bounds, ctx: ctx)
+        // 冻结底图在下面独立的 FrozenImageView 里，这里只画标注、遮罩和选区装饰
 
         if let r = selection.rect, !r.isEmpty {
             ctx.saveGState()
@@ -330,7 +398,9 @@ final class OverlayView: NSView {
     }
 
     private func drawSizeLabel(for r: CGRect, in ctx: CGContext) {
-        let w = Int((r.width * snapshot.scale).rounded()), h = Int((r.height * snapshot.scale).rounded())
+        // 与导出走同一份换算，标签上的数字就是文件里的像素数
+        let px = ImageComposer.pixelRect(for: r, scale: snapshot.scale, imageSize: CGSize(width: snapshot.image.width, height: snapshot.image.height))
+        let w = Int(px.width), h = Int(px.height)
         let attr = NSAttributedString(string: "\(w) × \(h)", attributes: [
             .font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .medium),
             .foregroundColor: NSColor.white,

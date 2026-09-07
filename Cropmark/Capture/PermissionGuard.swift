@@ -14,11 +14,22 @@ enum PermissionGuard {
         NSWorkspace.shared.open(url)
     }
 
-    /// 未授权时弹提示，返回是否已授权。
+    /// 未授权时引导用户，返回是否已授权。
+    /// 第一次只交给系统弹授权框，不再叠一个自己的提示；之后系统不会再弹，才由我们来解释。
     @MainActor
     static func ensureAccessOrExplain() -> Bool {
         if hasScreenCaptureAccess { return true }
-        requestScreenCaptureAccess()
+        if !Preferences.didRequestScreenCapture {
+            Preferences.didRequestScreenCapture = true
+            return requestScreenCaptureAccess()
+        }
+        explain()
+        return false
+    }
+
+    /// 弹出「需要屏幕录制权限」的说明框，可跳到系统设置。
+    @MainActor
+    static func explain() {
         let alert = NSAlert()
         alert.messageText = "Cropmark 需要「屏幕录制」权限"
         alert.informativeText = "请在「系统设置 → 隐私与安全性 → 屏幕录制」中勾选 Cropmark，然后重新按快捷键截图。"
@@ -26,6 +37,5 @@ enum PermissionGuard {
         alert.addButton(withTitle: "稍后")
         NSApp.activate(ignoringOtherApps: true)
         if alert.runModal() == .alertFirstButtonReturn { openSystemSettings() }
-        return false
     }
 }
