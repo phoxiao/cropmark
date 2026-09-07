@@ -47,7 +47,7 @@ struct SettingsView: View {
                     Toggle("", isOn: launchAtLogin).labelsHidden().toggleStyle(.switch)
                 }
             }
-            SettingsSection(title: "权限", footer: hasPermission ? nil : "授权后回到任意界面重新按快捷键即可，不需要重启应用。") {
+            SettingsSection(title: "权限", footer: hasPermission ? nil : "勾选后系统会要求退出并重新打开 Cropmark，重新打开后按快捷键即可截图。") {
                 HStack(spacing: 10) {
                     Image(systemName: hasPermission ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
                         .font(.title3)
