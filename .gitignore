@@ -4,3 +4,4 @@ Cropmark.xcodeproj/
 *.xcuserstate
 .DS_Store
 Cropmark/Resources/Info.plist
+dist/

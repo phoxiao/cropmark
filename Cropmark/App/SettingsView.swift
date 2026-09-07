@@ -12,7 +12,7 @@ struct SettingsView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             header
-            SettingsSection(title: "快捷键", footer: "微信运行时它自己的 ⌃⌘A 会抢键，请在微信设置里关掉或改掉。") {
+            SettingsSection(title: "快捷键", footer: "若其他应用占用了同一快捷键，二者会互相抢键：在对方设置里改掉，或在这里换一个。") {
                 SettingsRow("截图快捷键") {
                     KeyboardShortcuts.Recorder(for: .capture)
                 }
@@ -53,6 +53,13 @@ struct SettingsView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 14).padding(.vertical, 10)
             }
+            SettingsSection(title: "关于") {
+                LinkRow(title: "项目主页", detail: "github.com/phoxiao/cropmark", url: Self.repoURL)
+                Divider().padding(.leading, 14)
+                LinkRow(title: "开源许可", detail: "MIT License", url: Self.repoURL + "/blob/main/LICENSE")
+                Divider().padding(.leading, 14)
+                LinkRow(title: "第三方许可", detail: "KeyboardShortcuts (MIT)", url: Self.repoURL + "/blob/main/THIRD_PARTY_LICENSES.md")
+            }
         }
         .padding(20)
         .frame(width: Self.width)
@@ -70,7 +77,7 @@ struct SettingsView: View {
                 .resizable().frame(width: 56, height: 56)
             VStack(alignment: .leading, spacing: 3) {
                 Text("Cropmark").font(.title2.weight(.semibold))
-                Text("独立的截图工具，随时按 \(KeyboardShortcuts.getShortcut(for: .capture)?.description ?? "⌃⌘A") 截图，不依赖微信")
+                Text("轻量截图工具，随时按 \(KeyboardShortcuts.getShortcut(for: .capture)?.description ?? "⌃⌘A") 截图、标注、复制")
                     .font(.callout).foregroundStyle(.secondary)
                 Text("版本 \(Self.version)")
                     .font(.caption).foregroundStyle(.tertiary)
@@ -78,6 +85,8 @@ struct SettingsView: View {
         }
         .padding(.bottom, 2)
     }
+
+    static let repoURL = "https://github.com/phoxiao/cropmark"
 
     static var version: String {
         let short = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?"
@@ -131,6 +140,28 @@ struct SettingsRow<Control: View>: View {
             control
         }
         .padding(.horizontal, 14).padding(.vertical, 10)
+    }
+}
+
+/// 可点击打开网页的一行
+struct LinkRow: View {
+    let title: String
+    let detail: String
+    let url: String
+    var body: some View {
+        Button {
+            if let u = URL(string: url) { NSWorkspace.shared.open(u) }
+        } label: {
+            HStack {
+                Text(title).foregroundStyle(.primary)
+                Spacer()
+                Text(detail).foregroundStyle(.secondary)
+                Image(systemName: "arrow.up.right").font(.caption).foregroundStyle(.tertiary)
+            }
+            .padding(.horizontal, 14).padding(.vertical, 10)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 }
 

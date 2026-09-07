@@ -2,7 +2,7 @@ import AppKit
 import KeyboardShortcuts
 
 extension KeyboardShortcuts.Name {
-    /// 截图快捷键，默认与微信一致：⌃⌘A
+    /// 截图快捷键，默认 ⌃⌘A（与常见聊天软件的截图键一致，方便迁移习惯）
     static let capture = Self("capture", default: .init(.a, modifiers: [.control, .command]))
 }
 

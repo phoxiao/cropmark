@@ -15,9 +15,13 @@ settings:
     CODE_SIGN_STYLE: Manual
     CODE_SIGN_IDENTITY: "-"
     DEVELOPMENT_TEAM: ""
-    ENABLE_HARDENED_RUNTIME: NO
     SWIFT_TREAT_WARNINGS_AS_ERRORS: NO
     DEBUG_INFORMATION_FORMAT: dwarf-with-dsym
+  configs:
+    Debug:
+      ENABLE_HARDENED_RUNTIME: NO      # 测试宿主要注入 xctest
+    Release:
+      ENABLE_HARDENED_RUNTIME: YES     # 公证要求
 targets:
   Cropmark:
     type: application
@@ -38,7 +42,8 @@ targets:
         LSUIElement: true
         CFBundleIconFile: AppIcon
         LSMinimumSystemVersion: "14.0"
-        NSHumanReadableCopyright: "MIT"
+        NSHumanReadableCopyright: "© 2026 kivi. MIT License."
+        LSApplicationCategoryType: public.app-category.utilities
         NSScreenCaptureUsageDescription: "Cropmark 需要「屏幕录制」权限才能截取屏幕内容。"
         NSPrincipalClass: NSApplication
     settings:

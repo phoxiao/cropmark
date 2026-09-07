@@ -43,7 +43,7 @@ struct Style: Equatable {
 }
 
 enum Palette {
-    /// 微信截图的 6 色：红、橙、蓝、绿、黑、白
+    /// 标注调色板：红、橙、蓝、绿、黑、白（常见截图工具的通用六色）
     static let colors: [NSColor] = [
         NSColor(srgbRed: 0.93, green: 0.19, blue: 0.19, alpha: 1),
         NSColor(srgbRed: 1.00, green: 0.58, blue: 0.00, alpha: 1),

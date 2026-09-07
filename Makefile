@@ -5,7 +5,7 @@ XCB         = xcodebuild -project Cropmark.xcodeproj -scheme $(SCHEME) -derivedD
 # 构建用 ad-hoc，装机前用本机的 Apple Development 证书重签，这样重编译后「屏幕录制」权限不会失效
 SIGN_ID    ?= $(shell security find-identity -v -p codesigning 2>/dev/null | awk '/Apple Development|Developer ID Application/ {print $$2; exit}')
 
-.PHONY: gen build sign run stop test install clean icon
+.PHONY: gen build sign run stop test install clean icon release
 
 $(DERIVED):
 	mkdir -p $(DERIVED)
@@ -37,6 +37,10 @@ install: sign stop
 	rm -rf /Applications/Cropmark.app
 	cp -R $(APP) /Applications/Cropmark.app
 	open /Applications/Cropmark.app
+
+# 发布打包（Release 构建 + 签名 + 可选公证 + dmg/zip），产物在 dist/
+release: $(DERIVED)
+	DERIVED=$(DERIVED) scripts/release.sh
 
 clean:
 	rm -rf $(DERIVED) Cropmark.xcodeproj
