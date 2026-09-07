@@ -1,0 +1,6 @@
+build/
+.build/
+Clipper.xcodeproj/
+*.xcuserstate
+.DS_Store
+Clipper/Resources/Info.plist

@@ -1,0 +1,58 @@
+name: Clipper
+options:
+  bundleIdPrefix: com.kivixiao
+  createIntermediateGroups: true
+  deploymentTarget:
+    macOS: "14.0"
+packages:
+  KeyboardShortcuts:
+    url: https://github.com/sindresorhus/KeyboardShortcuts
+    from: 2.0.0
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MACOSX_DEPLOYMENT_TARGET: "14.0"
+    CODE_SIGN_STYLE: Manual
+    CODE_SIGN_IDENTITY: "-"
+    DEVELOPMENT_TEAM: ""
+    ENABLE_HARDENED_RUNTIME: NO
+    SWIFT_TREAT_WARNINGS_AS_ERRORS: NO
+    DEBUG_INFORMATION_FORMAT: dwarf-with-dsym
+targets:
+  Clipper:
+    type: application
+    platform: macOS
+    sources:
+      - path: Clipper
+        excludes:
+          - "Resources/Info.plist"
+    dependencies:
+      - package: KeyboardShortcuts
+    info:
+      path: Clipper/Resources/Info.plist
+      properties:
+        CFBundleDisplayName: Clipper
+        CFBundleName: Clipper
+        CFBundleShortVersionString: "0.1.0"
+        CFBundleVersion: "1"
+        LSUIElement: true
+        LSMinimumSystemVersion: "14.0"
+        NSHumanReadableCopyright: "MIT"
+        NSScreenCaptureUsageDescription: "Clipper 需要「屏幕录制」权限才能截取屏幕内容。"
+        NSPrincipalClass: NSApplication
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.kivixiao.clipper
+        PRODUCT_NAME: Clipper
+        ENABLE_APP_SANDBOX: NO
+        GENERATE_INFOPLIST_FILE: NO
+  ClipperTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources: [ClipperTests]
+    dependencies:
+      - target: Clipper
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.kivixiao.clipper.tests
+        GENERATE_INFOPLIST_FILE: YES
