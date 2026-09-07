@@ -52,7 +52,8 @@ enum Palette {
         NSColor(srgbRed: 0.10, green: 0.10, blue: 0.10, alpha: 1),
         NSColor(srgbRed: 1.00, green: 1.00, blue: 1.00, alpha: 1),
     ]
-    static let accent = NSColor(srgbRed: 0.03, green: 0.76, blue: 0.38, alpha: 1)
+    /// 强调色：选区边框、把手、完成按钮、选中的工具。与应用图标里的蓝同系。
+    static let accent = NSColor(srgbRed: 0x4F / 255, green: 0x7D / 255, blue: 1.0, alpha: 1)
 }
 
 /// 一条标注。所有坐标为所在屏幕的视图坐标（原点左上、y 向下、单位点）。

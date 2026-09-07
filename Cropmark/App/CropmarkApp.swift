@@ -7,7 +7,7 @@ extension KeyboardShortcuts.Name {
 }
 
 @main
-enum ClipperMain {
+enum CropmarkMain {
     static func main() {
         let app = NSApplication.shared
         let delegate = AppDelegate()

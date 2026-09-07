@@ -1,7 +1,7 @@
 import XCTest
-@testable import Clipper
+@testable import Cropmark
 
-/// 把覆盖层离屏渲染成 PNG（~/Library/Caches/ClipperBuild/preview-*.png），供人工/agent 看外观。
+/// 把覆盖层离屏渲染成 PNG（~/Library/Caches/CropmarkBuild/preview-*.png），供人工/agent 看外观。
 @MainActor
 final class PreviewRenderTests: XCTestCase {
     private let sRGB = CGColorSpace(name: CGColorSpace.sRGB)!
@@ -34,7 +34,7 @@ final class PreviewRenderTests: XCTestCase {
         view.layoutSubtreeIfNeeded()
         let rep = try XCTUnwrap(view.bitmapImageRepForCachingDisplay(in: view.bounds))
         view.cacheDisplay(in: view.bounds, to: rep)
-        let dir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Caches/ClipperBuild")
+        let dir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Caches/CropmarkBuild")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         try XCTUnwrap(rep.representation(using: .png, properties: [:])).write(to: dir.appendingPathComponent(name))
     }
@@ -72,7 +72,7 @@ final class PreviewRenderTests: XCTestCase {
         let img = try XCTUnwrap(session.lastImage)
         XCTAssertEqual(img.width, 720)   // 360pt × 2
         XCTAssertEqual(img.height, 500)
-        let dir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Caches/ClipperBuild")
+        let dir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Caches/CropmarkBuild")
         try XCTUnwrap(Exporter.pngData(img)).write(to: dir.appendingPathComponent("preview-4-export.png"))
     }
 }

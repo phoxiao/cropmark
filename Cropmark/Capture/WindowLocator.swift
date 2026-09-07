@@ -31,7 +31,7 @@ enum WindowLocator {
     }
 
     /// 在按前→后排序的窗口列表里找第一个包含 point 的窗口，并裁到所在屏幕。
-    /// 不排除本进程：Clipper 自己的设置窗口也应能被识别；覆盖层不在列表里（列表在覆盖窗出现前取）。
+    /// 不排除本进程：Cropmark 自己的设置窗口也应能被识别；覆盖层不在列表里（列表在覆盖窗出现前取）。
     static func topmostWindow(at point: CGPoint,
                               in windows: [LocatableWindow],
                               clampTo screenFrame: CGRect) -> CGRect? {

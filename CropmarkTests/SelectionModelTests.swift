@@ -1,5 +1,5 @@
 import XCTest
-@testable import Clipper
+@testable import Cropmark
 
 final class SelectionModelTests: XCTestCase {
     let bounds = CGRect(x: 0, y: 0, width: 1000, height: 600)

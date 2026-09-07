@@ -16,10 +16,8 @@ final class StatusItemController: NSObject {
         super.init()
 
         if let button = item.button {
-            let image = NSImage(systemSymbolName: "scissors", accessibilityDescription: "Clipper")
-            image?.isTemplate = true
-            button.image = image
-            button.toolTip = "Clipper 截图"
+            button.image = MenuBarIcon.make()
+            button.toolTip = "Cropmark 截图"
         }
 
         let menu = NSMenu()
@@ -31,7 +29,7 @@ final class StatusItemController: NSObject {
         settings.target = self
         menu.addItem(settings)
         menu.addItem(.separator())
-        let quit = NSMenuItem(title: "退出 Clipper", action: #selector(quitAction), keyEquivalent: "q")
+        let quit = NSMenuItem(title: "退出 Cropmark", action: #selector(quitAction), keyEquivalent: "q")
         quit.target = self
         menu.addItem(quit)
         item.menu = menu

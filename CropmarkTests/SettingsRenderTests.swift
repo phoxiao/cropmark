@@ -1,6 +1,6 @@
 import XCTest
 import SwiftUI
-@testable import Clipper
+@testable import Cropmark
 
 @MainActor
 final class SettingsRenderTests: XCTestCase {
@@ -17,7 +17,7 @@ final class SettingsRenderTests: XCTestCase {
         XCTAssertFalse(window.styleMask.contains(.resizable))
         let rep = try XCTUnwrap(content.bitmapImageRepForCachingDisplay(in: content.bounds))
         content.cacheDisplay(in: content.bounds, to: rep)
-        let dir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Caches/ClipperBuild")
+        let dir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Caches/CropmarkBuild")
         try XCTUnwrap(rep.representation(using: .png, properties: [:])).write(to: dir.appendingPathComponent("preview-5-settings.png"))
     }
 }

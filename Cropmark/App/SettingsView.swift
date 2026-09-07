@@ -69,7 +69,7 @@ struct SettingsView: View {
             Image(nsImage: NSApp.applicationIconImage)
                 .resizable().frame(width: 56, height: 56)
             VStack(alignment: .leading, spacing: 3) {
-                Text("Clipper").font(.title2.weight(.semibold))
+                Text("Cropmark").font(.title2.weight(.semibold))
                 Text("独立的截图工具，随时按 \(KeyboardShortcuts.getShortcut(for: .capture)?.description ?? "⌃⌘A") 截图，不依赖微信")
                     .font(.callout).foregroundStyle(.secondary)
                 Text("版本 \(Self.version)")
@@ -178,7 +178,7 @@ final class SettingsWindowController: NSWindowController {
     convenience init() {
         let hosting = NSHostingController(rootView: SettingsView())
         let window = NSWindow(contentViewController: hosting)
-        window.title = "Clipper 设置"
+        window.title = "Cropmark 设置"
         window.styleMask = [.titled, .closable]
         window.isReleasedWhenClosed = false
         hosting.view.layoutSubtreeIfNeeded()

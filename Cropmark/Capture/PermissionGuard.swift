@@ -20,8 +20,8 @@ enum PermissionGuard {
         if hasScreenCaptureAccess { return true }
         requestScreenCaptureAccess()
         let alert = NSAlert()
-        alert.messageText = "Clipper 需要「屏幕录制」权限"
-        alert.informativeText = "请在「系统设置 → 隐私与安全性 → 屏幕录制」中勾选 Clipper，然后重新按快捷键截图。"
+        alert.messageText = "Cropmark 需要「屏幕录制」权限"
+        alert.informativeText = "请在「系统设置 → 隐私与安全性 → 屏幕录制」中勾选 Cropmark，然后重新按快捷键截图。"
         alert.addButton(withTitle: "打开系统设置")
         alert.addButton(withTitle: "稍后")
         NSApp.activate(ignoringOtherApps: true)

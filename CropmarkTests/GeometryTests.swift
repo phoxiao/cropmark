@@ -1,5 +1,5 @@
 import XCTest
-@testable import Clipper
+@testable import Cropmark
 
 final class WindowLocatorTests: XCTestCase {
     func testCGToAppKitFlipsY() {

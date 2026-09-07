@@ -1,5 +1,5 @@
 import XCTest
-@testable import Clipper
+@testable import Cropmark
 
 /// 进程内走完一次截图交互：拖选 → 画矩形 → Enter → 剪贴板里有正确的图。
 /// 覆盖窗不显示到屏幕上，只借它做坐标换算。
@@ -18,7 +18,7 @@ final class OverlayFlowTests: XCTestCase {
     }
 
     private func makeSession(windows: [LocatableWindow] = [], boundary: Int = 200) -> (CaptureSession, OverlayWindow, NSPasteboard) {
-        let pb = NSPasteboard(name: NSPasteboard.Name("com.kivixiao.clipper.tests"))
+        let pb = NSPasteboard(name: NSPasteboard.Name("com.kivixiao.cropmark.tests"))
         pb.clearContents()
         finished = false
         let snapshot = makeSnapshot(boundary: boundary)

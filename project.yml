@@ -1,4 +1,4 @@
-name: Clipper
+name: Cropmark
 options:
   bundleIdPrefix: com.kivixiao
   createIntermediateGroups: true
@@ -19,40 +19,41 @@ settings:
     SWIFT_TREAT_WARNINGS_AS_ERRORS: NO
     DEBUG_INFORMATION_FORMAT: dwarf-with-dsym
 targets:
-  Clipper:
+  Cropmark:
     type: application
     platform: macOS
     sources:
-      - path: Clipper
+      - path: Cropmark
         excludes:
           - "Resources/Info.plist"
     dependencies:
       - package: KeyboardShortcuts
     info:
-      path: Clipper/Resources/Info.plist
+      path: Cropmark/Resources/Info.plist
       properties:
-        CFBundleDisplayName: Clipper
-        CFBundleName: Clipper
+        CFBundleDisplayName: Cropmark
+        CFBundleName: Cropmark
         CFBundleShortVersionString: "0.1.0"
         CFBundleVersion: "1"
         LSUIElement: true
+        CFBundleIconFile: AppIcon
         LSMinimumSystemVersion: "14.0"
         NSHumanReadableCopyright: "MIT"
-        NSScreenCaptureUsageDescription: "Clipper 需要「屏幕录制」权限才能截取屏幕内容。"
+        NSScreenCaptureUsageDescription: "Cropmark 需要「屏幕录制」权限才能截取屏幕内容。"
         NSPrincipalClass: NSApplication
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.kivixiao.clipper
-        PRODUCT_NAME: Clipper
+        PRODUCT_BUNDLE_IDENTIFIER: com.kivixiao.cropmark
+        PRODUCT_NAME: Cropmark
         ENABLE_APP_SANDBOX: NO
         GENERATE_INFOPLIST_FILE: NO
-  ClipperTests:
+  CropmarkTests:
     type: bundle.unit-test
     platform: macOS
-    sources: [ClipperTests]
+    sources: [CropmarkTests]
     dependencies:
-      - target: Clipper
+      - target: Cropmark
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.kivixiao.clipper.tests
+        PRODUCT_BUNDLE_IDENTIFIER: com.kivixiao.cropmark.tests
         GENERATE_INFOPLIST_FILE: YES
