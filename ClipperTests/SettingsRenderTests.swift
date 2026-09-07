@@ -10,7 +10,11 @@ final class SettingsRenderTests: XCTestCase {
         let window = try XCTUnwrap(controller.window)
         let content = try XCTUnwrap(window.contentView)
         content.layoutSubtreeIfNeeded()
-        XCTAssertGreaterThan(content.bounds.height, 200, "settings content collapsed: \(content.bounds)")
+        // 既不能塌成一条，也不该留大片空白
+        XCTAssertGreaterThan(content.bounds.height, 380, "settings content collapsed: \(content.bounds)")
+        XCTAssertLessThan(content.bounds.height, 720, "settings content too tall: \(content.bounds)")
+        XCTAssertEqual(content.bounds.width, SettingsView.width)
+        XCTAssertFalse(window.styleMask.contains(.resizable))
         let rep = try XCTUnwrap(content.bitmapImageRepForCachingDisplay(in: content.bounds))
         content.cacheDisplay(in: content.bounds, to: rep)
         let dir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Caches/ClipperBuild")
