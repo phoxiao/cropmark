@@ -397,11 +397,24 @@ final class OverlayView: NSView {
         }
     }
 
-    private func drawSizeLabel(for r: CGRect, in ctx: CGContext) {
-        // 与导出走同一份换算，标签上的数字就是文件里的像素数
+    /// 尺寸标签文字：与导出走同一份换算，数字就是 Enter 复制出去的像素数。
+    /// Retina 屏幕再标 @2x / @1x，一眼看出这张图是全分辨率还是已缩到屏幕尺寸。
+    func sizeLabelText(for r: CGRect) -> String {
         let px = ImageComposer.pixelRect(for: r, scale: snapshot.scale, imageSize: CGSize(width: snapshot.image.width, height: snapshot.image.height))
-        let w = Int(px.width), h = Int(px.height)
-        let attr = NSAttributedString(string: "\(w) × \(h)", attributes: [
+        let scale = snapshot.scale
+        guard scale > 1 else { return "\(Int(px.width)) × \(Int(px.height))" }
+        let at1x = (session?.exportOptions ?? .current).copyAt1x
+        if at1x {
+            // 与 Exporter.downscaled 同一套取整
+            let w = max(1, Int((px.width / scale).rounded())), h = max(1, Int((px.height / scale).rounded()))
+            return "\(w) × \(h) @1x"
+        }
+        let tag = scale == scale.rounded() ? "\(Int(scale))" : String(format: "%.1f", scale)
+        return "\(Int(px.width)) × \(Int(px.height)) @\(tag)x"
+    }
+
+    private func drawSizeLabel(for r: CGRect, in ctx: CGContext) {
+        let attr = NSAttributedString(string: sizeLabelText(for: r), attributes: [
             .font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .medium),
             .foregroundColor: NSColor.white,
         ])

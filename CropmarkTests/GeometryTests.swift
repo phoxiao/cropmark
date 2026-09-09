@@ -195,3 +195,58 @@ final class ImageComposerTests: XCTestCase {
         return [Int(p[i]), Int(p[i + 1]), Int(p[i + 2])]
     }
 }
+
+final class DownscaleAndClipboardFileTests: XCTestCase {
+    private func gradient(w: Int, h: Int) -> CGImage {
+        let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
+                            space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        ctx.setFillColor(CGColor(gray: 0.2, alpha: 1)); ctx.fill(CGRect(x: 0, y: 0, width: w / 2, height: h))
+        ctx.setFillColor(CGColor(gray: 0.8, alpha: 1)); ctx.fill(CGRect(x: w / 2, y: 0, width: w - w / 2, height: h))
+        return ctx.makeImage()!
+    }
+
+    /// 2x 缩到 1x：长宽减半，并按 1x 声明（点尺寸 = 像素尺寸）
+    func testDownscaleHalvesRetinaAndDeclares1x() throws {
+        let img = gradient(w: 200, h: 120)
+        let out = Exporter.output(img, scale: 2, at1x: true)
+        XCTAssertEqual(out.image.width, 100)
+        XCTAssertEqual(out.image.height, 60)
+        XCTAssertEqual(out.scale, 1)
+        let png = try XCTUnwrap(NSBitmapImageRep(data: try XCTUnwrap(Exporter.pngData(out.image, scale: out.scale))))
+        XCTAssertEqual(png.size.width, 100, accuracy: 0.1)
+        // 奇数像素四舍五入，不会掉成 0
+        XCTAssertEqual(Exporter.output(gradient(w: 3, h: 3), scale: 2, at1x: true).image.width, 2)
+        // 非 Retina 或没开缩放：原图原样
+        XCTAssertTrue(Exporter.output(img, scale: 1, at1x: true).image === img)
+        XCTAssertTrue(Exporter.output(img, scale: 2, at1x: false).image === img)
+    }
+
+    /// 剪贴板同一项里同时有 PNG、TIFF 和文件 URL；文件真的在磁盘上，且只保留最近几张
+    func testClipboardCarriesImageAndFile() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("cropmark-clip-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let pb = NSPasteboard(name: NSPasteboard.Name("com.kivixiao.cropmark.tests.clipfile"))
+        let img = gradient(w: 40, h: 30)
+
+        Exporter.copyToPasteboard(img, scale: 1, includeFile: true, fileDirectory: dir, to: pb)
+        let items = try XCTUnwrap(pb.pasteboardItems)
+        XCTAssertEqual(items.count, 1, "一个 item 带三种类型，而不是三个 item")
+        XCTAssertEqual(items[0].types.prefix(2), [.png, .tiff], "图片类型排在文件前面，要图的应用优先拿到图")
+        XCTAssertTrue(items[0].types.contains(.fileURL))
+        let urls = try XCTUnwrap(pb.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL])
+        let file = try XCTUnwrap(urls.first)
+        XCTAssertTrue(file.lastPathComponent.hasPrefix("截屏"))
+        XCTAssertEqual(NSBitmapImageRep(data: try Data(contentsOf: file))?.pixelsWide, 40)
+
+        // 关掉附带文件：只有图片
+        Exporter.copyToPasteboard(img, scale: 1, includeFile: false, fileDirectory: dir, to: pb)
+        XCTAssertFalse(try XCTUnwrap(pb.pasteboardItems)[0].types.contains(.fileURL))
+        XCTAssertNotNil(pb.data(forType: .png))
+
+        // 同一秒内连截多张不覆盖，超过保留数的旧文件被清掉
+        let png = try XCTUnwrap(Exporter.pngData(img))
+        for _ in 0..<5 { XCTAssertNotNil(Exporter.writeClipboardFile(png, in: dir, keep: 3)) }
+        let left = try FileManager.default.contentsOfDirectory(atPath: dir.path).filter { $0.hasSuffix(".png") }
+        XCTAssertEqual(left.count, 3)
+    }
+}

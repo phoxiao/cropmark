@@ -27,6 +27,7 @@ final class OverlayFlowTests: XCTestCase {
         let session = CaptureSession(snapshots: [snapshot], windowList: windows,
                                      returnFocus: { [weak self] in self?.focusReturned = true }) { [weak self] in self?.finished = true }
         session.pasteboard = pb
+        session.exportOptions = ExportOptions(copyAt1x: false, saveAt1x: false, clipboardIncludesFile: false)
         let window = session.makeWindows()[0]
         return (session, window, pb)
     }
@@ -63,6 +64,25 @@ final class OverlayFlowTests: XCTestCase {
         let p = ctx.data!.assumingMemoryBound(to: UInt8.self)
         let i = (y * img.width + x) * 4
         return [Int(p[i]), Int(p[i + 1]), Int(p[i + 2])]
+    }
+
+    /// Retina 屏幕的尺寸标签：默认标全分辨率 @2x，开了「复制时缩到 1x」就标缩小后的尺寸 @1x
+    func testSizeLabelReflectsRetinaOutput() {
+        let base = makeSnapshot().image   // 400×300 px，当作 2x 屏就是 200×150 pt
+        let snap = ScreenSnapshot(screen: NSScreen.screens[0], frame: CGRect(x: 0, y: 0, width: 200, height: 150), scale: 2, image: base)
+        let session = CaptureSession(snapshots: [snap], windowList: []) {}
+        session.exportOptions = ExportOptions(copyAt1x: false, saveAt1x: false, clipboardIncludesFile: false)
+        let view = session.makeWindows()[0].overlayView
+        let r = CGRect(x: 10, y: 10, width: 101, height: 50)
+        XCTAssertEqual(view.sizeLabelText(for: r), "202 × 100 @2x")
+        session.exportOptions.copyAt1x = true
+        XCTAssertEqual(view.sizeLabelText(for: r), "101 × 50 @1x")
+        withExtendedLifetime(session) {}
+
+        // 非 Retina：不带后缀
+        let (s1, w1, _) = makeSession()
+        XCTAssertEqual(w1.overlayView.sizeLabelText(for: CGRect(x: 0, y: 0, width: 50, height: 20)), "50 × 20")
+        withExtendedLifetime(s1) {}
     }
 
     func testDragSelectAnnotateAndCopy() throws {

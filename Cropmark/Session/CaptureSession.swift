@@ -92,6 +92,8 @@ final class CaptureSession {
     weak var activeView: OverlayView?
     /// 结果写入的剪贴板（测试时可替换）
     var pasteboard: NSPasteboard = .general
+    /// 导出选项（缩放、附带文件），会话开始时从偏好读一次，测试可覆盖
+    var exportOptions: ExportOptions = .current
     private(set) var lastImage: CGImage?
 
     init(snapshots: [ScreenSnapshot],
@@ -143,7 +145,7 @@ final class CaptureSession {
     func complete(with image: CGImage, scale: CGFloat) {
         lastImage = image
         teardown()
-        Exporter.copyToPasteboard(image, scale: scale, to: pasteboard)
+        copy(image, scale: scale)
         if Preferences.playSound { Exporter.playCaptureSound() }
         returnFocus()
     }
@@ -152,9 +154,16 @@ final class CaptureSession {
         lastImage = image
         teardown()
         // 先放进剪贴板：保存框取消或写入失败时，截图也不会丢
-        Exporter.copyToPasteboard(image, scale: scale, to: pasteboard)
-        Exporter.saveWithPanel(image, scale: scale)
+        copy(image, scale: scale)
+        let file = Exporter.output(image, scale: scale, at1x: exportOptions.saveAt1x)
+        Exporter.saveWithPanel(file.image, scale: file.scale)
         returnFocus()
+    }
+
+    private func copy(_ image: CGImage, scale: CGFloat) {
+        let out = Exporter.output(image, scale: scale, at1x: exportOptions.copyAt1x)
+        Exporter.copyToPasteboard(out.image, scale: out.scale,
+                                  includeFile: exportOptions.clipboardIncludesFile, to: pasteboard)
     }
 
     private func teardown() {

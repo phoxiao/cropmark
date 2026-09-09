@@ -7,11 +7,32 @@ enum Preferences {
     private enum Key {
         static let playSound = "playSound"
         static let didRequestScreenCapture = "didRequestScreenCapture"
+        static let copyAt1x = "copyAt1x"
+        static let saveAt1x = "saveAt1x"
+        static let clipboardIncludesFile = "clipboardIncludesFile"
     }
 
     static var playSound: Bool {
         get { defaults.object(forKey: Key.playSound) as? Bool ?? true }
         set { defaults.set(newValue, forKey: Key.playSound) }
+    }
+
+    /// 复制到剪贴板时把 Retina 截图缩小到屏幕显示尺寸（像素减半）
+    static var copyAt1x: Bool {
+        get { defaults.bool(forKey: Key.copyAt1x) }
+        set { defaults.set(newValue, forKey: Key.copyAt1x) }
+    }
+
+    /// 保存文件时把 Retina 截图缩小到屏幕显示尺寸
+    static var saveAt1x: Bool {
+        get { defaults.bool(forKey: Key.saveAt1x) }
+        set { defaults.set(newValue, forKey: Key.saveAt1x) }
+    }
+
+    /// 剪贴板里除了图片再放一个 PNG 文件引用，Finder / Slack / 终端这类只认文件的地方也能粘贴
+    static var clipboardIncludesFile: Bool {
+        get { defaults.object(forKey: Key.clipboardIncludesFile) as? Bool ?? true }
+        set { defaults.set(newValue, forKey: Key.clipboardIncludesFile) }
     }
 
     /// 是否已经向系统申请过一次屏幕录制权限（系统授权框只会弹这一次）

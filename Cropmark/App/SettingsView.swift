@@ -8,6 +8,9 @@ struct SettingsView: View {
     @State private var launchStatus = Preferences.launchAtLoginStatus
     @State private var hasPermission = PermissionGuard.hasScreenCaptureAccess
     @State private var shortcutText = SettingsView.shortcutDescription
+    @State private var copyAt1x = Preferences.copyAt1x
+    @State private var saveAt1x = Preferences.saveAt1x
+    @State private var clipboardIncludesFile = Preferences.clipboardIncludesFile
 
     private var launchAtLogin: Binding<Bool> {
         Binding(
@@ -29,12 +32,29 @@ struct SettingsView: View {
 
     static let width: CGFloat = 480
 
+
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             header
-            SettingsSection(title: "快捷键", footer: "若其他应用占用了同一快捷键，二者会互相抢键：在对方设置里改掉，或在这里换一个。") {
+            SettingsSection(title: "快捷键", footer: "若其他应用也注册了同一快捷键，按下时两边都会响应，或被对方拦截而 Cropmark 收不到：在对方设置里改掉，或在这里换一个。F1–F12 可以单独作为快捷键。") {
                 SettingsRow("截图快捷键") {
                     KeyboardShortcuts.Recorder(for: .capture) { _ in shortcutText = Self.shortcutDescription }
+                }
+            }
+            SettingsSection(title: "输出", footer: "Retina 屏幕的截图像素是显示尺寸的两倍，缩小到 1x 后贴进聊天、文档不会变大，体积也小得多。附带文件后，粘贴到 Finder、Slack、终端这类只认文件的地方也能用。") {
+                SettingsRow("复制到剪贴板时缩小到 1x") {
+                    Toggle("", isOn: $copyAt1x).labelsHidden().toggleStyle(.switch)
+                        .onChange(of: copyAt1x) { _, v in Preferences.copyAt1x = v }
+                }
+                Divider().padding(.leading, 14)
+                SettingsRow("保存文件时缩小到 1x") {
+                    Toggle("", isOn: $saveAt1x).labelsHidden().toggleStyle(.switch)
+                        .onChange(of: saveAt1x) { _, v in Preferences.saveAt1x = v }
+                }
+                Divider().padding(.leading, 14)
+                SettingsRow("剪贴板同时附带 PNG 文件") {
+                    Toggle("", isOn: $clipboardIncludesFile).labelsHidden().toggleStyle(.switch)
+                        .onChange(of: clipboardIncludesFile) { _, v in Preferences.clipboardIncludesFile = v }
                 }
             }
             SettingsSection(title: "行为", footer: launchFooter) {
