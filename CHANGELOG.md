@@ -1,6 +1,6 @@
 # 更新日志
 
-## 未发布
+## 0.2.0 — 2026-09-09
 
 - 新增：英文界面。菜单、设置页、工具栏提示、弹窗和保存文件名跟随系统语言：系统语言为英文时显示英文，其他语言显示中文；文案在 `Cropmark/Resources/Localizable.xcstrings`
 - 新增：剪贴板同时附带 PNG 文件。同一个剪贴板项里带图片和文件引用，Finder、Slack、终端、Claude Code 这类只认文件的地方也能直接粘贴；文件放在 `~/Library/Caches/Cropmark/Clipboard/`，只留最近 20 张，可在设置里关闭
