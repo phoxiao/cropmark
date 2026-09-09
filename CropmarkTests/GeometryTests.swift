@@ -116,9 +116,11 @@ final class CaptureFailureTests: XCTestCase {
         let declined = NSError(domain: SCStreamErrorDomain, code: SCStreamError.Code.userDeclined.rawValue)
         XCTAssertEqual(CaptureCoordinator.failure(for: declined), .permission)
         XCTAssertNotEqual(CaptureCoordinator.failure(for: ScreenGrabError.noDisplays), .permission)
-        if case .other(let msg) = CaptureCoordinator.failure(for: NSError(domain: "x", code: 1)) {
-            // 文案随系统语言变，只检查系统的错误描述被带上了
-            XCTAssertTrue(msg.contains("x error 1") || msg.contains("错误 1") || msg.count > 20, msg)
+        let generic = NSError(domain: "x", code: 1)
+        if case .other(let msg) = CaptureCoordinator.failure(for: generic) {
+            // 文案随系统语言变，只检查系统的错误描述被完整带上、且模板确实包了一层
+            XCTAssertTrue(msg.contains(generic.localizedDescription), msg)
+            XCTAssertGreaterThan(msg.count, generic.localizedDescription.count, msg)
         } else { XCTFail("generic error should map to .other") }
     }
 }

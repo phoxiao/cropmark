@@ -30,14 +30,23 @@ enum Exporter {
         bitmapRep(image, scale: scale).representation(using: .png, properties: [:])
     }
 
+    /// 缩到 1x 后的像素尺寸。尺寸标签和真正的重采样都用它，标签上的数字才等于导出的像素数。
+    static func downscaledSize(_ size: CGSize, by scale: CGFloat) -> (width: Int, height: Int) {
+        guard scale > 1 else { return (Int(size.width), Int(size.height)) }
+        return (max(1, Int((size.width / scale).rounded())), max(1, Int((size.height / scale).rounded())))
+    }
+
     /// 把 Retina 像素图重采样到屏幕显示尺寸（2x 就是长宽各减半）。scale ≤ 1 原样返回。
     static func downscaled(_ image: CGImage, by scale: CGFloat) -> CGImage? {
         guard scale > 1 else { return image }
-        let w = max(1, Int((CGFloat(image.width) / scale).rounded()))
-        let h = max(1, Int((CGFloat(image.height) / scale).rounded()))
+        let (w, h) = downscaledSize(CGSize(width: image.width, height: image.height), by: scale)
+        // 保留原图色彩空间，P3 屏幕开关缩放不会偏色
+        let space = image.colorSpace ?? CGColorSpace(name: CGColorSpace.sRGB)!
         guard let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
-                                  space: CGColorSpace(name: CGColorSpace.sRGB)!,
-                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+                                  space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else {
+            NSLog("downscale failed for \(image.width)x\(image.height) @\(scale)x, exporting full resolution")
+            return nil
+        }
         ctx.interpolationQuality = .high
         ctx.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
         return ctx.makeImage()
@@ -75,11 +84,14 @@ enum Exporter {
         let fm = FileManager.default
         do {
             try fm.createDirectory(at: directory, withIntermediateDirectories: true)
-            var url = directory.appendingPathComponent(defaultFileName())
+            let name = defaultFileName()
+            let stem = (name as NSString).deletingPathExtension
+            let ext = (name as NSString).pathExtension.isEmpty ? "png" : (name as NSString).pathExtension
+            var url = directory.appendingPathComponent(name)
             var n = 2
+            // 同一秒内连截多张：截屏… 2.png、截屏… 3.png，不覆盖
             while fm.fileExists(atPath: url.path) {
-                let base = defaultFileName().dropLast(4)
-                url = directory.appendingPathComponent("\(base) \(n).png")
+                url = directory.appendingPathComponent("\(stem) \(n).\(ext)")
                 n += 1
             }
             try png.write(to: url)

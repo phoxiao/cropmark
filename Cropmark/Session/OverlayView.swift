@@ -405,8 +405,7 @@ final class OverlayView: NSView {
         guard scale > 1 else { return "\(Int(px.width)) × \(Int(px.height))" }
         let at1x = (session?.exportOptions ?? .current).copyAt1x
         if at1x {
-            // 与 Exporter.downscaled 同一套取整
-            let w = max(1, Int((px.width / scale).rounded())), h = max(1, Int((px.height / scale).rounded()))
+            let (w, h) = Exporter.downscaledSize(px.size, by: scale)
             return "\(w) × \(h) @1x"
         }
         let tag = scale == scale.rounded() ? "\(Int(scale))" : String(format: "%.1f", scale)
