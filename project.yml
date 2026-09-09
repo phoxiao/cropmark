@@ -1,6 +1,7 @@
 name: Cropmark
 options:
   bundleIdPrefix: com.kivixiao
+  developmentLanguage: zh-Hans
   createIntermediateGroups: true
   deploymentTarget:
     macOS: "14.0"
@@ -37,6 +38,8 @@ targets:
       properties:
         CFBundleDisplayName: Cropmark
         CFBundleName: Cropmark
+        CFBundleDevelopmentRegion: zh-Hans
+        CFBundleLocalizations: [zh-Hans, en]
         CFBundleShortVersionString: "0.1.1"
         CFBundleVersion: "2"
         LSUIElement: true

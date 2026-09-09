@@ -31,10 +31,10 @@ enum PermissionGuard {
     @MainActor
     static func explain() {
         let alert = NSAlert()
-        alert.messageText = "Cropmark 需要「屏幕录制」权限"
-        alert.informativeText = "请在「系统设置 → 隐私与安全性 → 屏幕录制」中勾选 Cropmark。系统会要求退出并重新打开 Cropmark，重新打开后再按快捷键。"
-        alert.addButton(withTitle: "打开系统设置")
-        alert.addButton(withTitle: "稍后")
+        alert.messageText = L10n.t("Cropmark 需要「屏幕录制」权限")
+        alert.informativeText = L10n.t("请在「系统设置 → 隐私与安全性 → 屏幕录制」中勾选 Cropmark。系统会要求退出并重新打开 Cropmark，重新打开后再按快捷键。")
+        alert.addButton(withTitle: L10n.t("打开系统设置"))
+        alert.addButton(withTitle: L10n.t("稍后"))
         NSApp.activate(ignoringOtherApps: true)
         if alert.runModal() == .alertFirstButtonReturn { openSystemSettings() }
     }

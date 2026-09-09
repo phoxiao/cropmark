@@ -71,14 +71,14 @@ final class ToolbarPanel: NSView {
             mainRow.addArrangedSubview(b)
         }
         mainRow.addArrangedSubview(Separator())
-        undoButton = ToolButton(symbol: "arrow.uturn.backward", tooltip: "撤销 ⌘Z") { [weak self] in self?.onAction?(.undo) }
+        undoButton = ToolButton(symbol: "arrow.uturn.backward", tooltip: L10n.t("撤销 ⌘Z")) { [weak self] in self?.onAction?(.undo) }
         mainRow.addArrangedSubview(undoButton)
         mainRow.addArrangedSubview(Separator())
-        mainRow.addArrangedSubview(ToolButton(symbol: "square.and.arrow.down", tooltip: "保存到文件") { [weak self] in self?.onAction?(.save) })
-        let cancel = ToolButton(symbol: "xmark", tooltip: "取消 Esc") { [weak self] in self?.onAction?(.cancel) }
+        mainRow.addArrangedSubview(ToolButton(symbol: "square.and.arrow.down", tooltip: L10n.t("保存到文件")) { [weak self] in self?.onAction?(.save) })
+        let cancel = ToolButton(symbol: "xmark", tooltip: L10n.t("取消 Esc")) { [weak self] in self?.onAction?(.cancel) }
         cancel.tint = NSColor.systemRed
         mainRow.addArrangedSubview(cancel)
-        let done = ToolButton(symbol: "checkmark", tooltip: "完成 Enter") { [weak self] in self?.onAction?(.done) }
+        let done = ToolButton(symbol: "checkmark", tooltip: L10n.t("完成 Enter")) { [weak self] in self?.onAction?(.done) }
         done.tint = Palette.accent
         mainRow.addArrangedSubview(done)
 

@@ -2,6 +2,7 @@
 
 ## 未发布
 
+- 新增：英文界面。菜单、设置页、工具栏提示、弹窗和保存文件名跟随系统语言，简体中文之外的系统显示英文；文案在 `Cropmark/Resources/Localizable.xcstrings`
 - 新增：剪贴板同时附带 PNG 文件。同一个剪贴板项里带图片和文件引用，Finder、Slack、终端、Claude Code 这类只认文件的地方也能直接粘贴；文件放在 `~/Library/Caches/Cropmark/Clipboard/`，只留最近 20 张，可在设置里关闭
 - 新增：Retina 截图可缩小到 1x，复制和保存分别设置；尺寸标签在 Retina 屏幕上标 `@2x` / `@1x`，数字始终是 Enter 复制出去的像素数
 - 改进：设置页与 README 说明快捷键冲突的真实行为（同一快捷键多个应用都会响应，或被对方拦截），并说明 F1–F12 可以单独作为快捷键

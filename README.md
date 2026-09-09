@@ -15,6 +15,7 @@ macOS 轻量截图工具。按一下 `⌃⌘A`，框选、标注、复制到剪�
 - Retina 屏幕可选「缩小到 1x」：复制和保存分别设置，贴进公众号、文档不再是两倍大，体积也小得多；尺寸标签用 `@2x` / `@1x` 标出当前输出
 - 快捷键可以设成 `F1`–`F12` 单键
 - 设置：改快捷键、登录时启动、提示音开关、输出缩放、剪贴板是否附带文件
+- 界面跟随系统语言：简体中文、英文
 
 ## 安装
 
@@ -58,6 +59,10 @@ make install      # 生成工程 → 编译 → 用本机开发证书签名 → 
 关于签名：`make install` / `make release` 会自动查找本机证书（优先 Developer ID Application，其次 Apple Development）。用稳定的证书签名，重新编译后「屏幕录制」权限才不会失效。如果只有 ad-hoc 签名，每次重编译都要重新授权，遇到"开关开着却一直弹授权"时执行 `tccutil reset ScreenCapture com.kivixiao.cropmark` 后重新授权。
 
 有付费开发者账号时，先用 `xcrun notarytool store-credentials <名字>` 存好凭据，再 `NOTARY_PROFILE=<名字> make release`，脚本会自动公证并装订，用户就不再需要「仍要打开」那一步。
+
+## 本地化
+
+界面文案以中文原文为键，译文放在 `Cropmark/Resources/Localizable.xcstrings`，代码里统一通过 `L10n.t("中文")` 取值，没有译文时原样显示中文。加一种语言只需在 String Catalog 里补一列，不用改代码。
 
 ## 结构
 

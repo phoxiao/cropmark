@@ -50,7 +50,7 @@ final class CaptureCoordinator {
                     PermissionGuard.explain()
                 case .other(let message):
                     let alert = NSAlert()
-                    alert.messageText = "截图失败"
+                    alert.messageText = L10n.t("截图失败")
                     alert.informativeText = message
                     NSApp.activate(ignoringOtherApps: true)
                     alert.runModal()
@@ -66,9 +66,9 @@ final class CaptureCoordinator {
             return .permission
         }
         if error is ScreenGrabError {
-            return .other("没有找到可以截取的显示器，请重试。")
+            return .other(L10n.t("没有找到可以截取的显示器，请重试。"))
         }
-        return .other("\(ns.localizedDescription)\n\n请重试；如果反复出现，到「设置」里检查屏幕录制权限状态。")
+        return .other(L10n.t("%@\n\n请重试；如果反复出现，到「设置」里检查屏幕录制权限状态。", ns.localizedDescription))
     }
 
     private static func reactivate(_ app: NSRunningApplication?) {

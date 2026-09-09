@@ -26,7 +26,7 @@ struct SettingsView: View {
 
     private var launchFooter: String? {
         launchStatus == .requiresApproval
-            ? "系统要求在「登录项与扩展」里手动允许 Cropmark，允许后这里会自动变为开启。"
+            ? L10n.t("系统要求在「登录项与扩展」里手动允许 Cropmark，允许后这里会自动变为开启。")
             : nil
     }
 
@@ -36,65 +36,65 @@ struct SettingsView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             header
-            SettingsSection(title: "快捷键", footer: "若其他应用也注册了同一快捷键，按下时两边都会响应，或被对方拦截而 Cropmark 收不到：在对方设置里改掉，或在这里换一个。F1–F12 可以单独作为快捷键。") {
-                SettingsRow("截图快捷键") {
+            SettingsSection(title: L10n.t("快捷键"), footer: L10n.t("若其他应用也注册了同一快捷键，按下时两边都会响应，或被对方拦截而 Cropmark 收不到：在对方设置里改掉，或在这里换一个。F1–F12 可以单独作为快捷键。")) {
+                SettingsRow(L10n.t("截图快捷键")) {
                     KeyboardShortcuts.Recorder(for: .capture) { _ in shortcutText = Self.shortcutDescription }
                 }
             }
-            SettingsSection(title: "输出", footer: "Retina 屏幕的截图像素是显示尺寸的两倍，缩小到 1x 后贴进聊天、文档不会变大，体积也小得多。附带文件后，粘贴到 Finder、Slack、终端这类只认文件的地方也能用。") {
-                SettingsRow("复制到剪贴板时缩小到 1x") {
+            SettingsSection(title: L10n.t("输出"), footer: L10n.t("Retina 屏幕的截图像素是显示尺寸的两倍，缩小到 1x 后贴进聊天、文档不会变大，体积也小得多。附带文件后，粘贴到 Finder、Slack、终端这类只认文件的地方也能用。")) {
+                SettingsRow(L10n.t("复制到剪贴板时缩小到 1x")) {
                     Toggle("", isOn: $copyAt1x).labelsHidden().toggleStyle(.switch)
                         .onChange(of: copyAt1x) { _, v in Preferences.copyAt1x = v }
                 }
                 Divider().padding(.leading, 14)
-                SettingsRow("保存文件时缩小到 1x") {
+                SettingsRow(L10n.t("保存文件时缩小到 1x")) {
                     Toggle("", isOn: $saveAt1x).labelsHidden().toggleStyle(.switch)
                         .onChange(of: saveAt1x) { _, v in Preferences.saveAt1x = v }
                 }
                 Divider().padding(.leading, 14)
-                SettingsRow("剪贴板同时附带 PNG 文件") {
+                SettingsRow(L10n.t("剪贴板同时附带 PNG 文件")) {
                     Toggle("", isOn: $clipboardIncludesFile).labelsHidden().toggleStyle(.switch)
                         .onChange(of: clipboardIncludesFile) { _, v in Preferences.clipboardIncludesFile = v }
                 }
             }
-            SettingsSection(title: "行为", footer: launchFooter) {
-                SettingsRow("截图完成后播放提示音") {
+            SettingsSection(title: L10n.t("行为"), footer: launchFooter) {
+                SettingsRow(L10n.t("截图完成后播放提示音")) {
                     Toggle("", isOn: $playSound).labelsHidden().toggleStyle(.switch)
                         .onChange(of: playSound) { _, v in Preferences.playSound = v }
                 }
                 Divider().padding(.leading, 14)
-                SettingsRow("登录时自动启动") {
+                SettingsRow(L10n.t("登录时自动启动")) {
                     Toggle("", isOn: launchAtLogin).labelsHidden().toggleStyle(.switch)
                 }
             }
-            SettingsSection(title: "权限", footer: hasPermission ? nil : "勾选后系统会要求退出并重新打开 Cropmark，重新打开后按快捷键即可截图。") {
+            SettingsSection(title: L10n.t("权限"), footer: hasPermission ? nil : L10n.t("勾选后系统会要求退出并重新打开 Cropmark，重新打开后按快捷键即可截图。")) {
                 HStack(spacing: 10) {
                     Image(systemName: hasPermission ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
                         .font(.title3)
                         .foregroundStyle(hasPermission ? Color.green : Color.orange)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("屏幕录制")
-                        Text(hasPermission ? "已授权，可以截图" : "尚未授权，按快捷键不会有反应")
+                        Text(L10n.t("屏幕录制"))
+                        Text(hasPermission ? L10n.t("已授权，可以截图") : L10n.t("尚未授权，按快捷键不会有反应"))
                             .font(.callout).foregroundStyle(.secondary)
                     }
                     Spacer()
                     if !hasPermission {
-                        Button("打开系统设置") { PermissionGuard.openSystemSettings() }
+                        Button(L10n.t("打开系统设置")) { PermissionGuard.openSystemSettings() }
                     }
                 }
                 .padding(.horizontal, 14).padding(.vertical, 10)
             }
-            SettingsSection(title: "截图时的按键") {
+            SettingsSection(title: L10n.t("截图时的按键")) {
                 KeyTable()
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 14).padding(.vertical, 10)
             }
-            SettingsSection(title: "关于") {
-                LinkRow(title: "项目主页", detail: "github.com/phoxiao/cropmark", url: Self.repoURL)
+            SettingsSection(title: L10n.t("关于")) {
+                LinkRow(title: L10n.t("项目主页"), detail: "github.com/phoxiao/cropmark", url: Self.repoURL)
                 Divider().padding(.leading, 14)
-                LinkRow(title: "开源许可", detail: "MIT License", url: Self.repoURL + "/blob/main/LICENSE")
+                LinkRow(title: L10n.t("开源许可"), detail: "MIT License", url: Self.repoURL + "/blob/main/LICENSE")
                 Divider().padding(.leading, 14)
-                LinkRow(title: "第三方许可", detail: "KeyboardShortcuts (MIT)", url: Self.repoURL + "/blob/main/THIRD_PARTY_LICENSES.md")
+                LinkRow(title: L10n.t("第三方许可"), detail: "KeyboardShortcuts (MIT)", url: Self.repoURL + "/blob/main/THIRD_PARTY_LICENSES.md")
             }
         }
         .padding(20)
@@ -115,9 +115,9 @@ struct SettingsView: View {
                 .resizable().frame(width: 56, height: 56)
             VStack(alignment: .leading, spacing: 3) {
                 Text("Cropmark").font(.title2.weight(.semibold))
-                Text("轻量截图工具，随时按 \(shortcutText) 截图、标注、复制")
+                Text(L10n.t("轻量截图工具，随时按 %@ 截图、标注、复制", shortcutText))
                     .font(.callout).foregroundStyle(.secondary)
-                Text("版本 \(Self.version)")
+                Text(L10n.t("版本 %@", Self.version))
                     .font(.caption).foregroundStyle(.tertiary)
             }
         }
@@ -125,7 +125,7 @@ struct SettingsView: View {
     }
 
     static var shortcutDescription: String {
-        KeyboardShortcuts.getShortcut(for: .capture)?.description ?? "未设置"
+        KeyboardShortcuts.getShortcut(for: .capture)?.description ?? L10n.t("未设置")
     }
 
     static let repoURL = "https://github.com/phoxiao/cropmark"
@@ -210,14 +210,14 @@ struct LinkRow: View {
 /// 截图界面的按键说明表
 struct KeyTable: View {
     private let rows: [(keys: [String], action: String)] = [
-        (["拖动"], "框选区域；松手后可拉伸、移动选区"),
-        (["单击"], "选中光标下的窗口"),
-        (["Enter", "双击"], "完成，复制到剪贴板"),
-        (["⌘S"], "保存为 PNG 文件"),
-        (["⌘Z"], "撤销上一步标注"),
-        (["Shift", "拖动"], "正方形 / 正圆 / 45° 箭头"),
-        (["右键"], "重新框选；再按一次退出"),
-        (["Esc"], "取消"),
+        ([L10n.t("拖动")], L10n.t("框选区域；松手后可拉伸、移动选区")),
+        ([L10n.t("单击")], L10n.t("选中光标下的窗口")),
+        (["Enter", L10n.t("双击")], L10n.t("完成，复制到剪贴板")),
+        (["⌘S"], L10n.t("保存为 PNG 文件")),
+        (["⌘Z"], L10n.t("撤销上一步标注")),
+        (["Shift", L10n.t("拖动")], L10n.t("正方形 / 正圆 / 45° 箭头")),
+        ([L10n.t("右键")], L10n.t("重新框选；再按一次退出")),
+        (["Esc"], L10n.t("取消")),
     ]
 
     var body: some View {
@@ -253,7 +253,7 @@ final class SettingsWindowController: NSWindowController {
     convenience init() {
         let hosting = NSHostingController(rootView: SettingsView())
         let window = NSWindow(contentViewController: hosting)
-        window.title = "Cropmark 设置"
+        window.title = L10n.t("Cropmark 设置")
         window.styleMask = [.titled, .closable]
         window.isReleasedWhenClosed = false
         hosting.view.layoutSubtreeIfNeeded()

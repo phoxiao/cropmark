@@ -106,9 +106,10 @@ enum Exporter {
 
     static func defaultFileName(date: Date = Date()) -> String {
         let f = DateFormatter()
-        f.locale = Locale(identifier: "zh_CN")
+        // 日期部分固定用阿拉伯数字，不随系统语言变；前缀随语言（截屏 / Screenshot）
+        f.locale = Locale(identifier: "en_US_POSIX")
         f.dateFormat = "yyyy-MM-dd HH.mm.ss"
-        return "截屏\(f.string(from: date)).png"
+        return L10n.t("截屏%@.png", f.string(from: date))
     }
 
     /// 弹系统保存框写 PNG。返回是否真的写成功了；失败会告诉用户，不只是记日志。
@@ -124,13 +125,13 @@ enum Exporter {
         NSApp.activate(ignoringOtherApps: true)
         guard panel.runModal() == .OK, let url = panel.url else { return false }
         guard let data = pngData(image, scale: scale) else {
-            presentSaveFailure("无法把截图编码为 PNG。")
+            presentSaveFailure(L10n.t("无法把截图编码为 PNG。"))
             return false
         }
         do {
             try data.write(to: url)
         } catch {
-            presentSaveFailure("写入 \(url.lastPathComponent) 失败：\(error.localizedDescription)")
+            presentSaveFailure(L10n.t("写入 %@ 失败：%@", url.lastPathComponent, error.localizedDescription))
             return false
         }
         if Preferences.playSound { playCaptureSound() }
@@ -140,8 +141,8 @@ enum Exporter {
     @MainActor
     private static func presentSaveFailure(_ detail: String) {
         let alert = NSAlert()
-        alert.messageText = "保存失败"
-        alert.informativeText = detail + "\n截图仍在剪贴板里，可以直接粘贴。"
+        alert.messageText = L10n.t("保存失败")
+        alert.informativeText = L10n.t("%@\n截图仍在剪贴板里，可以直接粘贴。", detail)
         alert.runModal()
     }
 

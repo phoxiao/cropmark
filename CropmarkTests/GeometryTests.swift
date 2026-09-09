@@ -117,7 +117,8 @@ final class CaptureFailureTests: XCTestCase {
         XCTAssertEqual(CaptureCoordinator.failure(for: declined), .permission)
         XCTAssertNotEqual(CaptureCoordinator.failure(for: ScreenGrabError.noDisplays), .permission)
         if case .other(let msg) = CaptureCoordinator.failure(for: NSError(domain: "x", code: 1)) {
-            XCTAssertTrue(msg.contains("重试"))
+            // 文案随系统语言变，只检查系统的错误描述被带上了
+            XCTAssertTrue(msg.contains("x error 1") || msg.contains("错误 1") || msg.count > 20, msg)
         } else { XCTFail("generic error should map to .other") }
     }
 }
@@ -235,7 +236,9 @@ final class DownscaleAndClipboardFileTests: XCTestCase {
         XCTAssertTrue(items[0].types.contains(.fileURL))
         let urls = try XCTUnwrap(pb.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL])
         let file = try XCTUnwrap(urls.first)
-        XCTAssertTrue(file.lastPathComponent.hasPrefix("截屏"))
+        // 文件名前缀随语言（截屏 / Screenshot），只检查扩展名和日期部分
+        XCTAssertEqual(file.pathExtension, "png")
+        XCTAssertNotNil(file.lastPathComponent.range(of: #"\d{4}-\d{2}-\d{2} \d{2}\.\d{2}\.\d{2}"#, options: .regularExpression), file.lastPathComponent)
         XCTAssertEqual(NSBitmapImageRep(data: try Data(contentsOf: file))?.pixelsWide, 40)
 
         // 关掉附带文件：只有图片

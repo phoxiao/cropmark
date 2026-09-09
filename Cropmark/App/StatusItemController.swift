@@ -17,19 +17,19 @@ final class StatusItemController: NSObject {
 
         if let button = item.button {
             button.image = MenuBarIcon.make()
-            button.toolTip = "Cropmark 截图"
+            button.toolTip = L10n.t("Cropmark 截图")
         }
 
         let menu = NSMenu()
-        let capture = NSMenuItem(title: "截图", action: #selector(captureAction), keyEquivalent: "")
+        let capture = NSMenuItem(title: L10n.t("截图"), action: #selector(captureAction), keyEquivalent: "")
         capture.target = self
         menu.addItem(capture)
         menu.addItem(.separator())
-        let settings = NSMenuItem(title: "设置…", action: #selector(settingsAction), keyEquivalent: ",")
+        let settings = NSMenuItem(title: L10n.t("设置…"), action: #selector(settingsAction), keyEquivalent: ",")
         settings.target = self
         menu.addItem(settings)
         menu.addItem(.separator())
-        let quit = NSMenuItem(title: "退出 Cropmark", action: #selector(quitAction), keyEquivalent: "q")
+        let quit = NSMenuItem(title: L10n.t("退出 Cropmark"), action: #selector(quitAction), keyEquivalent: "q")
         quit.target = self
         menu.addItem(quit)
         item.menu = menu

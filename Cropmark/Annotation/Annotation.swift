@@ -5,12 +5,12 @@ enum ToolKind: CaseIterable {
 
     var title: String {
         switch self {
-        case .rect: return "矩形"
-        case .ellipse: return "椭圆"
-        case .arrow: return "箭头"
-        case .pen: return "画笔"
-        case .mosaic: return "马赛克"
-        case .text: return "文字"
+        case .rect: return L10n.t("矩形")
+        case .ellipse: return L10n.t("椭圆")
+        case .arrow: return L10n.t("箭头")
+        case .pen: return L10n.t("画笔")
+        case .mosaic: return L10n.t("马赛克")
+        case .text: return L10n.t("文字")
         }
     }
     var symbol: String {
@@ -34,7 +34,7 @@ enum Thickness: Int, CaseIterable {
     /// 马赛克涂抹笔宽（点）
     var mosaicBrush: CGFloat { [14, 22, 32][rawValue] }
     var dotDiameter: CGFloat { [6, 9, 12][rawValue] }
-    var title: String { ["细", "中", "粗"][rawValue] }
+    var title: String { L10n.t(["细", "中", "粗"][rawValue]) }
 }
 
 struct Style: Equatable {
