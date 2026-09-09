@@ -61,7 +61,7 @@ final class LocalizationTests: XCTestCase {
         let content = try XCTUnwrap(window.contentView)
         content.layoutSubtreeIfNeeded()
         XCTAssertGreaterThan(content.bounds.height, 380)
-        XCTAssertLessThan(content.bounds.height, 1250, "英文版设置页过高: \(content.bounds)")
+        XCTAssertLessThan(content.bounds.height, 1400, "英文版设置页过高: \(content.bounds)")
         let rep = try XCTUnwrap(content.bitmapImageRepForCachingDisplay(in: content.bounds))
         content.cacheDisplay(in: content.bounds, to: rep)
         let dir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Caches/CropmarkBuild")

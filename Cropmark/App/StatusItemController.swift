@@ -6,11 +6,14 @@ final class StatusItemController: NSObject {
     private let item: NSStatusItem
     private let onCapture: () -> Void
     private let onSettings: () -> Void
+    private let onCheckUpdates: () -> Void
     private let onQuit: () -> Void
 
-    init(onCapture: @escaping () -> Void, onSettings: @escaping () -> Void, onQuit: @escaping () -> Void) {
+    init(onCapture: @escaping () -> Void, onSettings: @escaping () -> Void,
+         onCheckUpdates: @escaping () -> Void = {}, onQuit: @escaping () -> Void) {
         self.onCapture = onCapture
         self.onSettings = onSettings
+        self.onCheckUpdates = onCheckUpdates
         self.onQuit = onQuit
         item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         super.init()
@@ -28,6 +31,9 @@ final class StatusItemController: NSObject {
         let settings = NSMenuItem(title: L10n.t("设置…"), action: #selector(settingsAction), keyEquivalent: ",")
         settings.target = self
         menu.addItem(settings)
+        let update = NSMenuItem(title: L10n.t("检查更新…"), action: #selector(checkUpdatesAction), keyEquivalent: "")
+        update.target = self
+        menu.addItem(update)
         menu.addItem(.separator())
         let quit = NSMenuItem(title: L10n.t("退出 Cropmark"), action: #selector(quitAction), keyEquivalent: "q")
         quit.target = self
@@ -40,5 +46,6 @@ final class StatusItemController: NSObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { self.onCapture() }
     }
     @objc private func settingsAction() { onSettings() }
+    @objc private func checkUpdatesAction() { onCheckUpdates() }
     @objc private func quitAction() { onQuit() }
 }

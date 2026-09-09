@@ -16,6 +16,7 @@ macOS 轻量截图工具。按一下 `⌃⌘A`，框选、标注、复制到剪�
 - 快捷键可以设成 `F1`–`F12` 单键
 - 设置：改快捷键、登录时启动、提示音开关、输出缩放、剪贴板是否附带文件
 - 界面跟随系统语言：简体中文、英文
+- 自动更新：每天检查一次 GitHub 上的新版本，有新版弹窗一键升级；可关闭，也可从菜单栏手动「检查更新…」
 
 ## 安装
 
@@ -31,7 +32,9 @@ macOS 轻量截图工具。按一下 `⌃⌘A`，框选、标注、复制到剪�
 
 ## 隐私
 
-Cropmark 不联网、不收集任何数据。截图只存在剪贴板或你选择保存的位置；屏幕录制权限仅用于按下快捷键那一刻抓取屏幕画面。
+Cropmark 不收集任何数据。截图只存在剪贴板或你选择保存的位置；屏幕录制权限仅用于按下快捷键那一刻抓取屏幕画面。
+
+唯一的网络请求是检查更新：每天向 GitHub 请求一次版本清单（`docs/appcast.xml`），只下载不上传。第一次启动时会询问是否开启，设置里随时可关。
 
 开启「剪贴板同时附带 PNG 文件」（默认开）时，每次复制会在 `~/Library/Caches/Cropmark/Clipboard/` 写一份 PNG，只保留最近 20 张。不想留文件就在设置里关掉。
 
@@ -59,6 +62,17 @@ make install      # 生成工程 → 编译 → 用本机开发证书签名 → 
 关于签名：`make install` / `make release` 会自动查找本机证书（优先 Developer ID Application，其次 Apple Development）。用稳定的证书签名，重新编译后「屏幕录制」权限才不会失效。如果只有 ad-hoc 签名，每次重编译都要重新授权，遇到"开关开着却一直弹授权"时执行 `tccutil reset ScreenCapture com.kivixiao.cropmark` 后重新授权。
 
 有付费开发者账号时，先用 `xcrun notarytool store-credentials <名字>` 存好凭据，再 `NOTARY_PROFILE=<名字> make release`，脚本会自动公证并装订，用户就不再需要「仍要打开」那一步。
+
+## 发布与自动更新
+
+更新走 [Sparkle](https://sparkle-project.org)：应用读取 `docs/appcast.xml`，里面是最新版本号、下载地址和 EdDSA 签名。发布一个新版本：
+
+1. 改 `project.yml` 的 `CFBundleShortVersionString`、`CFBundleVersion` 和 `CHANGELOG.md`，提交
+2. `make release`：构建、签名、打包到 `dist/`，并用钥匙串里的私钥生成 `docs/appcast.xml`
+3. `git tag vX.Y.Z && git push origin vX.Y.Z`，然后 `gh release create vX.Y.Z dist/*.dmg dist/*.zip dist/SHA256SUMS.txt`
+4. 最后提交 `docs/appcast.xml` 并推送。这一步必须在 Release 附件上传之后，否则旧版本会下到 404
+
+签名密钥只需生成一次：`<SPM 缓存>/artifacts/sparkle/Sparkle/bin/generate_keys`，私钥进登录钥匙串，输出的公钥填到 `project.yml` 的 `SUPublicEDKey`。换机器发布要先 `generate_keys -x 文件` 导出、在新机器 `generate_keys -f 文件` 导入。
 
 ## 本地化
 

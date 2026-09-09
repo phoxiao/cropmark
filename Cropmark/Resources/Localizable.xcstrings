@@ -61,12 +61,32 @@
         }
       }
     },
+    "上次检查": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Last checked"
+          }
+        }
+      }
+    },
     "中": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Medium"
+          }
+        }
+      }
+    },
+    "从未": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Never"
           }
         }
       }
@@ -401,6 +421,16 @@
         }
       }
     },
+    "更新": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Updates"
+          }
+        }
+      }
+    },
     "未设置": {
       "localizations": {
         "en": {
@@ -431,6 +461,16 @@
         }
       }
     },
+    "检查更新…": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Check for Updates…"
+          }
+        }
+      }
+    },
     "椭圆": {
       "localizations": {
         "en": {
@@ -447,6 +487,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Square / circle / 45° arrow"
+          }
+        }
+      }
+    },
+    "每天检查一次 GitHub 上有没有新版本，只请求版本清单，不发送任何数据。也可以随时从菜单栏「检查更新…」手动检查。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checks GitHub once a day for a new version. Only the version list is requested; no data is sent. You can also check anytime from the menu bar via “Check for Updates…”."
           }
         }
       }
@@ -511,6 +561,16 @@
         }
       }
     },
+    "立即检查": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Check Now"
+          }
+        }
+      }
+    },
     "第三方许可": {
       "localizations": {
         "en": {
@@ -557,6 +617,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Thin"
+          }
+        }
+      }
+    },
+    "自动检查更新": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Check for updates automatically"
           }
         }
       }

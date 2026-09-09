@@ -11,6 +11,7 @@ struct SettingsView: View {
     @State private var copyAt1x = Preferences.copyAt1x
     @State private var saveAt1x = Preferences.saveAt1x
     @State private var clipboardIncludesFile = Preferences.clipboardIncludesFile
+    @State private var autoUpdate = Updates.automaticallyChecks
 
     private var launchAtLogin: Binding<Bool> {
         Binding(
@@ -67,6 +68,22 @@ struct SettingsView: View {
                     Toggle("", isOn: launchAtLogin).labelsHidden().toggleStyle(.switch)
                 }
             }
+            SettingsSection(title: L10n.t("更新"), footer: L10n.t("每天检查一次 GitHub 上有没有新版本，只请求版本清单，不发送任何数据。也可以随时从菜单栏「检查更新…」手动检查。")) {
+                SettingsRow(L10n.t("自动检查更新")) {
+                    Toggle("", isOn: $autoUpdate).labelsHidden().toggleStyle(.switch)
+                        .disabled(!Updates.isAvailable)
+                        .onChange(of: autoUpdate) { _, v in Updates.automaticallyChecks = v }
+                }
+                Divider().padding(.leading, 14)
+                HStack {
+                    Text(L10n.t("上次检查")).foregroundStyle(.secondary)
+                    Spacer()
+                    Text(Updates.lastCheckDate.map { $0.formatted(date: .abbreviated, time: .shortened) } ?? L10n.t("从未"))
+                        .foregroundStyle(.secondary)
+                    Button(L10n.t("立即检查")) { Updates.checkForUpdates() }.disabled(!Updates.isAvailable)
+                }
+                .padding(.horizontal, 14).padding(.vertical, 10)
+            }
             SettingsSection(title: L10n.t("权限"), footer: hasPermission ? nil : L10n.t("勾选后系统会要求退出并重新打开 Cropmark，重新打开后按快捷键即可截图。")) {
                 HStack(spacing: 10) {
                     Image(systemName: hasPermission ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
@@ -94,7 +111,7 @@ struct SettingsView: View {
                 Divider().padding(.leading, 14)
                 LinkRow(title: L10n.t("开源许可"), detail: "MIT License", url: Self.repoURL + "/blob/main/LICENSE")
                 Divider().padding(.leading, 14)
-                LinkRow(title: L10n.t("第三方许可"), detail: "KeyboardShortcuts (MIT)", url: Self.repoURL + "/blob/main/THIRD_PARTY_LICENSES.md")
+                LinkRow(title: L10n.t("第三方许可"), detail: "KeyboardShortcuts, Sparkle (MIT)", url: Self.repoURL + "/blob/main/THIRD_PARTY_LICENSES.md")
             }
         }
         .padding(20)

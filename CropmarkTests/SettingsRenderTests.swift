@@ -12,7 +12,7 @@ final class SettingsRenderTests: XCTestCase {
         content.layoutSubtreeIfNeeded()
         // 既不能塌成一条，也不该留大片空白
         XCTAssertGreaterThan(content.bounds.height, 380, "settings content collapsed: \(content.bounds)")
-        XCTAssertLessThan(content.bounds.height, 1250, "settings content too tall: \(content.bounds)")
+        XCTAssertLessThan(content.bounds.height, 1400, "settings content too tall: \(content.bounds)")
         XCTAssertEqual(content.bounds.width, SettingsView.width)
         XCTAssertFalse(window.styleMask.contains(.resizable))
         let rep = try XCTUnwrap(content.bitmapImageRepForCachingDisplay(in: content.bounds))

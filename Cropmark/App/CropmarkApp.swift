@@ -35,8 +35,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem = StatusItemController(
             onCapture: { [weak self] in self?.coordinator.begin() },
             onSettings: { [weak self] in self?.showSettings() },
+            onCheckUpdates: { Updates.checkForUpdates() },
             onQuit: { NSApp.terminate(nil) }
         )
+        Updates.start()
         KeyboardShortcuts.onKeyDown(for: .capture) { [weak self] in
             self?.coordinator.begin()
         }

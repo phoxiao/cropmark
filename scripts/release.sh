@@ -56,5 +56,23 @@ hdiutil create -quiet -volname "Cropmark" -srcfolder "$STAGE" -ov -format UDZO "
 ditto -c -k --keepParent "$APP" "$DIST/$NAME.zip"
 rm -rf "$STAGE"
 (cd "$DIST" && shasum -a 256 "$NAME.dmg" "$NAME.zip" > SHA256SUMS.txt)
+
+echo "==> 生成 Sparkle appcast"
+# Sparkle 的命令行工具随 SPM 包一起下载；私钥在登录钥匙串（generate_keys 生成）
+SPARKLE_BIN=$(ls -d "$DERIVED"/SourcePackages/artifacts/sparkle/Sparkle/bin 2>/dev/null | head -1)
+[[ -n "$SPARKLE_BIN" ]] || { echo "找不到 Sparkle 工具，先 make build 让 SPM 拉取依赖"; exit 1; }
+FEED_DIR=$(mktemp -d)
+cp "$DIST/$NAME.zip" "$FEED_DIR/"
+"$SPARKLE_BIN/generate_appcast" \
+  --download-url-prefix "https://github.com/phoxiao/cropmark/releases/download/v$VERSION/" \
+  --link "https://github.com/phoxiao/cropmark/releases/tag/v$VERSION" \
+  -o "$DIST/appcast.xml" "$FEED_DIR"
+rm -rf "$FEED_DIR"
+mkdir -p "$ROOT/docs"
+cp "$DIST/appcast.xml" "$ROOT/docs/appcast.xml"
 ls -la "$DIST"
 echo "==> 完成：$DIST/$NAME.dmg"
+echo "    下一步（顺序不能反，appcast 先上会让老版本下到 404）："
+echo "    1. git tag v$VERSION && git push origin v$VERSION"
+echo "    2. gh release create v$VERSION dist/$NAME.dmg dist/$NAME.zip dist/SHA256SUMS.txt"
+echo "    3. git add docs/appcast.xml && git commit -m 'chore: 发布 v$VERSION appcast' && git push"
