@@ -1,31 +1,28 @@
 import AppKit
 
-/// 菜单栏模板图标：四个 L 括角 + 中间小方块，与应用图标同一语言。
+/// 菜单栏图标：和应用图标同一套几何（见 IconArtwork），去掉底板、按小尺寸加粗线条。
 enum MenuBarIcon {
     static func make() -> NSImage {
-        let size = NSSize(width: 18, height: 18)
+        let size = NSSize(width: IconArtwork.menuBarSize, height: IconArtwork.menuBarSize)
         let image = NSImage(size: size, flipped: false) { rect in
-            let r = rect.insetBy(dx: 1.5, dy: 1.5)
-            let len: CGFloat = 4.5
-            let path = NSBezierPath()
-            path.lineWidth = 1.8
-            path.lineCapStyle = .round
-            path.lineJoinStyle = .round
-            let corners: [(NSPoint, NSPoint, NSPoint)] = [
-                (NSPoint(x: r.minX, y: r.maxY - len), NSPoint(x: r.minX, y: r.maxY), NSPoint(x: r.minX + len, y: r.maxY)),
-                (NSPoint(x: r.maxX - len, y: r.maxY), NSPoint(x: r.maxX, y: r.maxY), NSPoint(x: r.maxX, y: r.maxY - len)),
-                (NSPoint(x: r.maxX, y: r.minY + len), NSPoint(x: r.maxX, y: r.minY), NSPoint(x: r.maxX - len, y: r.minY)),
-                (NSPoint(x: r.minX + len, y: r.minY), NSPoint(x: r.minX, y: r.minY), NSPoint(x: r.minX, y: r.minY + len)),
-            ]
-            for (a, b, c) in corners { path.move(to: a); path.line(to: b); path.line(to: c) }
-            NSColor.black.setStroke()
-            path.stroke()
-            let inner = r.insetBy(dx: 5, dy: 5)
-            NSColor.black.setFill()
-            NSBezierPath(roundedRect: inner, xRadius: 1.5, yRadius: 1.5).fill()
+            guard let c = NSGraphicsContext.current?.cgContext else { return false }
+            IconArtwork.drawGlyph(c,
+                                  frame: IconArtwork.menuBarFrame(in: rect),
+                                  lineWidth: IconArtwork.menuBarLineWidth(in: rect),
+                                  cornerColor: cornerColor)
             return true
         }
-        image.isTemplate = true
+        // 中间画面是彩色的，不能当 template 用（那会被系统抹成纯单色）。
+        // 代价是括角得自己适配深浅色：关掉缓存，每次绘制重新判一次外观。
+        image.isTemplate = false
+        image.cacheMode = .never
         return image
+    }
+
+    /// 浅色菜单栏下就是应用图标那个深灰，两者严格同色；深色下换成它的浅色对位。
+    /// 不用 labelColor：那是接近纯黑的通用文字色，和应用图标的 #2B2F3A 差一截。
+    private static var cornerColor: CGColor {
+        let isDark = NSAppearance.currentDrawing().bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        return isDark ? IconArtwork.inkColorOnDark : IconArtwork.inkColor
     }
 }

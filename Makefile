@@ -13,9 +13,11 @@ $(DERIVED):
 gen:
 	xcodegen generate
 
-# 重新生成应用图标（Cropmark/Resources/AppIcon.icns）
+# 重新生成应用图标（Cropmark/Resources/AppIcon.icns）。
+# 和 IconArtwork.swift 一起编译：图形定义只有那一份，菜单栏图标用的也是它。
 icon: $(DERIVED)
-	swift scripts/make-icon.swift $(DERIVED)
+	swiftc -parse-as-library -O -o $(DERIVED)/make-icon Cropmark/App/IconArtwork.swift scripts/make-icon.swift
+	$(DERIVED)/make-icon $(DERIVED)
 	cp $(DERIVED)/AppIcon.icns Cropmark/Resources/AppIcon.icns
 
 build: gen $(DERIVED)
