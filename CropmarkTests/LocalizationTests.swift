@@ -1,4 +1,5 @@
 import XCTest
+import AppKit
 @testable import Cropmark
 
 @MainActor
@@ -50,21 +51,13 @@ final class LocalizationTests: XCTestCase {
         XCTAssertEqual(L10n.t("这条没有翻译"), "这条没有翻译")
     }
 
-    /// 英文版设置页离屏渲染成图，供人工检查排版（长句会不会挤爆）
+    /// 英文版设置页逐个分页离屏渲染成图，供人工检查排版（长句会不会挤爆）
     func testSettingsRendersInEnglish() throws {
         let original = L10n.bundle
         defer { L10n.bundle = original }
         L10n.bundle = try english
         let controller = SettingsWindowController()
-        let window = try XCTUnwrap(controller.window)
-        XCTAssertEqual(window.title, "Cropmark Settings")
-        let content = try XCTUnwrap(window.contentView)
-        content.layoutSubtreeIfNeeded()
-        XCTAssertGreaterThan(content.bounds.height, 380)
-        XCTAssertLessThan(content.bounds.height, 1400, "英文版设置页过高: \(content.bounds)")
-        let rep = try XCTUnwrap(content.bitmapImageRepForCachingDisplay(in: content.bounds))
-        content.cacheDisplay(in: content.bounds, to: rep)
-        let dir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Caches/CropmarkBuild")
-        try XCTUnwrap(rep.representation(using: .png, properties: [:])).write(to: dir.appendingPathComponent("preview-6-settings-en.png"))
+        XCTAssertEqual(try XCTUnwrap(controller.window).title, "Cropmark Settings")
+        try renderSettingsTabs(namePrefix: "preview-6-settings-en")
     }
 }

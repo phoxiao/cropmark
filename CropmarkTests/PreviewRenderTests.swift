@@ -30,14 +30,6 @@ final class PreviewRenderTests: XCTestCase {
         v.mouseUp(with: mouse(.leftMouseUp, b, in: w))
     }
 
-    private func save(_ view: NSView, _ name: String) throws {
-        view.layoutSubtreeIfNeeded()
-        let rep = try XCTUnwrap(view.bitmapImageRepForCachingDisplay(in: view.bounds))
-        view.cacheDisplay(in: view.bounds, to: rep)
-        let dir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Caches/CropmarkBuild")
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        try XCTUnwrap(rep.representation(using: .png, properties: [:])).write(to: dir.appendingPathComponent(name))
-    }
 
     func testRenderOverlayStates() throws {
         let snap = gradientSnapshot()
@@ -50,11 +42,11 @@ final class PreviewRenderTests: XCTestCase {
 
         // 1) 悬停识别窗口
         view.mouseMoved(with: mouse(.mouseMoved, CGPoint(x: 250, y: 150), in: window))
-        try save(canvas, "preview-1-hover.png")
+        try savePreview(canvas, "preview-1-hover.png")
 
         // 2) 拖选后：把手 + 尺寸 + 工具栏
         drag(view, CGPoint(x: 120, y: 80), CGPoint(x: 480, y: 330), in: window)
-        try save(canvas, "preview-2-selected.png")
+        try savePreview(canvas, "preview-2-selected.png")
 
         // 3) 标注：矩形、箭头、画笔、马赛克、文字，工具栏展开颜色面板
         view.selectToolForTesting(.rect)
@@ -66,7 +58,7 @@ final class PreviewRenderTests: XCTestCase {
         view.selectToolForTesting(.mosaic)
         drag(view, CGPoint(x: 180, y: 240), CGPoint(x: 280, y: 240), in: window)
         view.selectToolForTesting(.ellipse)
-        try save(canvas, "preview-3-annotated.png")
+        try savePreview(canvas, "preview-3-annotated.png")
 
         // 导出结果
         view.keyDown(with: NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber,
