@@ -3,14 +3,14 @@
     <channel>
         <title>Cropmark</title>
         <item>
-            <title>0.3.0</title>
-            <pubDate>Thu, 10 Sep 2026 14:22:37 +0800</pubDate>
-            <link>https://github.com/phoxiao/cropmark/releases/tag/v0.3.0</link>
-            <sparkle:version>4</sparkle:version>
-            <sparkle:shortVersionString>0.3.0</sparkle:shortVersionString>
+            <title>0.4.0</title>
+            <pubDate>Mon, 14 Sep 2026 13:49:49 +0800</pubDate>
+            <link>https://github.com/phoxiao/cropmark/releases/tag/v0.4.0</link>
+            <sparkle:version>5</sparkle:version>
+            <sparkle:shortVersionString>0.4.0</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
             <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
-            <enclosure url="https://github.com/phoxiao/cropmark/releases/download/v0.3.0/Cropmark-0.3.0.zip" length="2239376" type="application/octet-stream" sparkle:edSignature="c0lW5KCPjGuk7J4mDTtJ4aylFL4ZCX1pPAHRD7GgheFw9XdAp4t59qb1g8kYAy8yPTnQHOohujWUYSkle61tCA=="/>
+            <enclosure url="https://github.com/phoxiao/cropmark/releases/download/v0.4.0/Cropmark-0.4.0.zip" length="2263898" type="application/octet-stream" sparkle:edSignature="YCHev8R1lWqMTYfjZoncDn2wmqXbUQHBXsfdT8bWpNAPJ+LxigFNWLkIgNM6JOspJeegKEfrH6MB0bdFNvkRAg=="/>
         </item>
     </channel>
 </rss>
