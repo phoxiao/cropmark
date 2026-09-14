@@ -33,7 +33,8 @@ final class PreviewRenderTests: XCTestCase {
 
     func testRenderOverlayStates() throws {
         let snap = gradientSnapshot()
-        let session = CaptureSession(snapshots: [snap], windowList: [LocatableWindow(frame: CGRect(x: 150, y: 125, width: 250, height: 175), pid: 1)]) {}
+        let session = CaptureSession(snapshots: [snap], windowList: [LocatableWindow(frame: CGRect(x: 150, y: 125, width: 250, height: 175), pid: 1)],
+                                     elementDetection: .off) {}
         defer { withExtendedLifetime(session) {} }
         let window = session.makeWindows()[0]
         let view = window.overlayView

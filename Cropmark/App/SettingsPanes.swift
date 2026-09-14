@@ -12,6 +12,7 @@ struct GeneralPane: View {
     let onShortcutChange: () -> Void
 
     @State private var playSound = Preferences.playSound
+    @State private var detectDialogs = Preferences.detectInAppDialogs
 
     private var launchAtLogin: Binding<Bool> {
         Binding(
@@ -46,6 +47,11 @@ struct GeneralPane: View {
                 Divider().padding(.leading, 14)
                 SettingsRow(L10n.t("登录时自动启动")) {
                     Toggle("", isOn: launchAtLogin).labelsHidden().toggleStyle(.switch)
+                }
+                Divider().padding(.leading, 14)
+                SettingsRow(L10n.t("自动框选应用内的对话框")) {
+                    Toggle("", isOn: $detectDialogs).labelsHidden().toggleStyle(.switch)
+                        .onChange(of: detectDialogs) { _, v in Preferences.detectInAppDialogs = v }
                 }
             }
             SettingsSection(title: L10n.t("权限"), footer: hasPermission ? nil : L10n.t("勾选后系统会要求退出并重新打开 Cropmark，重新打开后按快捷键即可截图。")) {

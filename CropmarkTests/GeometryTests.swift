@@ -21,11 +21,157 @@ final class WindowLocatorTests: XCTestCase {
         XCTAssertNil(WindowLocator.topmostWindow(at: CGPoint(x: 900, y: 900), in: windows, clampTo: screen))
     }
 
+    /// Dock 在 20 层、窗口铺满整块屏幕并排在所有应用之前，放进来的话每次悬停都只会选中它。
+    /// 菜单栏（24）、状态栏（25）、工具提示（200）同理。
+    func testUnwantedLayersAreFilteredOut() {
+        func info(layer: Int, onscreen: Bool = true) -> [String: Any] {
+            [kCGWindowLayer as String: layer,
+             kCGWindowOwnerPID as String: pid_t(42),
+             kCGWindowIsOnscreen as String: onscreen,
+             kCGWindowBounds as String: CGRect(x: 0, y: 0, width: 400, height: 300)
+                .dictionaryRepresentation as NSDictionary]
+        }
+        for rejected in [20, 24, 25, 102, 200, 500, -2147483601] {
+            XCTAssertNil(WindowLocator.locatable(from: info(layer: rejected), primaryHeight: 1000),
+                         "layer \(rejected) 不该被识别")
+        }
+        for accepted in [0, 3, 8, 19, 101] {
+            XCTAssertNotNil(WindowLocator.locatable(from: info(layer: accepted), primaryHeight: 1000),
+                            "layer \(accepted) 应该被识别")
+        }
+        XCTAssertNil(WindowLocator.locatable(from: info(layer: 0, onscreen: false), primaryHeight: 1000))
+    }
+
     func testWindowClampedToScreen() {
         let screen = CGRect(x: 0, y: 0, width: 1000, height: 1000)
         let windows = [LocatableWindow(frame: CGRect(x: 900, y: 900, width: 300, height: 300), pid: 1)]
         XCTAssertEqual(WindowLocator.topmostWindow(at: CGPoint(x: 950, y: 950), in: windows, clampTo: screen),
                        CGRect(x: 900, y: 900, width: 100, height: 100))
+    }
+}
+
+final class ElementGeometryTests: XCTestCase {
+    private let window = CGRect(x: 100, y: 100, width: 400, height: 300)
+
+    func testAcceptsARectInsideTheWindow() {
+        let dialog = CGRect(x: 180, y: 160, width: 200, height: 140)
+        XCTAssertEqual(ElementGeometry.refine(window: window, element: dialog), dialog)
+    }
+
+    func testNilElementFallsBackToWholeWindow() {
+        XCTAssertEqual(ElementGeometry.refine(window: window, element: nil), window)
+    }
+
+    /// 算出来的矩形不在窗口里，只可能是坐标换算写反了（y 翻转是重灾区），必须退回整窗
+    func testRectOutsideTheWindowIsRejected() {
+        XCTAssertEqual(ElementGeometry.refine(window: window, element: CGRect(x: 480, y: 160, width: 200, height: 140)),
+                       window)
+        XCTAssertEqual(ElementGeometry.refine(window: window, element: .zero), window)
+    }
+}
+
+final class BlockDetectorTests: XCTestCase {
+    /// 造一张图：dim 色的底 + 一块 card 色的矩形，可选在卡片里再画几行"文字"
+    private func canvas(size: Int = 400, card: PixelRect, dim: UInt8 = 90, cardColor: UInt8 = 245,
+                        text: Bool = false) -> LumaBuffer {
+        var px = [UInt8](repeating: dim, count: size * size)
+        for y in card.y0...card.y1 {
+            for x in card.x0...card.x1 { px[y * size + x] = cardColor }
+        }
+        if text {
+            for row in stride(from: card.y0 + 20, to: card.y1 - 20, by: 24) {
+                for y in row..<min(row + 8, card.y1) {
+                    for x in (card.x0 + 15)...(card.x1 - 15) { px[y * size + x] = 40 }
+                }
+            }
+        }
+        return LumaBuffer(width: size, height: size, pixels: px)
+    }
+
+    private var whole: PixelRect { PixelRect(x0: 0, y0: 0, x1: 399, y1: 399) }
+
+    private func assertFound(_ found: PixelRect?, matches card: PixelRect,
+                             tolerance: Int = 2, file: StaticString = #filePath, line: UInt = #line) throws {
+        let r = try XCTUnwrap(found, file: file, line: line)
+        for (a, b) in [(r.x0, card.x0), (r.x1, card.x1), (r.y0, card.y0), (r.y1, card.y1)] {
+            XCTAssertLessThanOrEqual(abs(a - b), tolerance, "\(r) 对不上 \(card)", file: file, line: line)
+        }
+    }
+
+    func testFindsACardOnDimmedBackground() throws {
+        let card = PixelRect(x0: 100, y0: 80, x1: 300, y1: 260)
+        try assertFound(BlockDetector.rect(at: (x: 200, y: 170), in: canvas(card: card), bounds: whole),
+                        matches: card)
+    }
+
+    /// 关键用例：光标压在卡片里的文字上，也要找到整张卡片而不是那一行文字。
+    /// 这正是"向外扫描找第一条边"那套做法翻车的地方。
+    func testTextInsideTheCardDoesNotTrapTheDetector() throws {
+        let card = PixelRect(x0: 100, y0: 80, x1: 300, y1: 260)
+        let buf = canvas(card: card, text: true)
+        try assertFound(BlockDetector.rect(at: (x: 200, y: 124), in: buf, bounds: whole), matches: card)
+    }
+
+    /// 光标落在卡片外的蒙层上：会一路长满整屏，必须判为无结果而不是把整屏当选区
+    func testSeedOnTheDimmedBackdropYieldsNothing() {
+        let card = PixelRect(x0: 100, y0: 80, x1: 300, y1: 260)
+        XCTAssertNil(BlockDetector.rect(at: (x: 30, y: 30), in: canvas(card: card), bounds: whole))
+    }
+
+    func testPlainBackgroundYieldsNothing() {
+        let flat = LumaBuffer(width: 400, height: 400, pixels: [UInt8](repeating: 120, count: 160000))
+        XCTAssertNil(BlockDetector.rect(at: (x: 200, y: 200), in: flat, bounds: whole))
+    }
+
+    func testTinyBlockIsRejected() {
+        let chip = PixelRect(x0: 190, y0: 190, x1: 210, y1: 210)
+        XCTAssertNil(BlockDetector.rect(at: (x: 200, y: 200), in: canvas(card: chip), bounds: whole))
+    }
+
+    /// 细长条不像一个"块"：外接矩形撑得很大但填充率很低，应当被否掉
+    func testLShapedRegionIsRejectedByFillRatio() {
+        var px = [UInt8](repeating: 90, count: 400 * 400)
+        for y in 100...300 { for x in 100...120 { px[y * 400 + x] = 245 } }   // 竖条
+        for x in 100...300 { for y in 280...300 { px[y * 400 + x] = 245 } }   // 横条
+        let buf = LumaBuffer(width: 400, height: 400, pixels: px)
+        XCTAssertNil(BlockDetector.rect(at: (x: 110, y: 150), in: buf, bounds: whole))
+    }
+}
+
+/// 钉住 AppKit 屏幕坐标（y 向上）和图像像素（y 向下）之间的换算。
+/// 翻转写反了高亮会跑到对称的另一半去，而且合成图单测发现不了——所以单独测一遍。
+final class BlockLocatorTests: XCTestCase {
+    /// 400x300 像素的图：暗底 + 一块亮卡片，卡片在图上占 x 80..279、从顶部数第 60..159 行
+    private func image() -> CGImage {
+        let ctx = CGContext(data: nil, width: 400, height: 300, bitsPerComponent: 8, bytesPerRow: 0,
+                            space: CGColorSpaceCreateDeviceRGB(),
+                            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        ctx.setFillColor(gray: 0.35, alpha: 1)
+        ctx.fill(CGRect(x: 0, y: 0, width: 400, height: 300))
+        ctx.setFillColor(gray: 0.96, alpha: 1)
+        // CGContext 是左下原点：顶部第 60 行、高 100 行 → y = 300 - 60 - 100
+        ctx.fill(CGRect(x: 80, y: 140, width: 200, height: 100))
+        return ctx.makeImage()!
+    }
+
+    func testPixelBlockMapsBackToScreenCoordinates() throws {
+        // 屏幕在 AppKit 里位于 (100,50)，200x150 点，2 倍分辨率 → 正好 400x300 像素
+        let screen = CGRect(x: 100, y: 50, width: 200, height: 150)
+        let locator = BlockLocator(image: image(), screenFrame: screen, scale: 2, step: 1)
+        // 图上 (180,110) → 屏幕内偏移 (90 点, 距顶 55 点) → AppKit (190, 145)
+        let found = try XCTUnwrap(locator.element(at: CGPoint(x: 190, y: 145), within: screen))
+        // 卡片：x 从 140 起宽 100；距顶 30 点、高 50 点 → AppKit y 从 120 起
+        let expected = CGRect(x: 140, y: 120, width: 100, height: 50)
+        XCTAssertLessThanOrEqual(abs(found.frame.minX - expected.minX), 2, "\(found.frame)")
+        XCTAssertLessThanOrEqual(abs(found.frame.minY - expected.minY), 2, "\(found.frame)")
+        XCTAssertLessThanOrEqual(abs(found.frame.width - expected.width), 2, "\(found.frame)")
+        XCTAssertLessThanOrEqual(abs(found.frame.height - expected.height), 2, "\(found.frame)")
+    }
+
+    func testPointOutsideTheScreenYieldsNothing() {
+        let screen = CGRect(x: 100, y: 50, width: 200, height: 150)
+        let locator = BlockLocator(image: image(), screenFrame: screen, scale: 2, step: 1)
+        XCTAssertNil(locator.element(at: CGPoint(x: 10, y: 10), within: screen))
     }
 }
 

@@ -18,13 +18,14 @@ final class OverlayFlowTests: XCTestCase {
         return ScreenSnapshot(screen: NSScreen.screens[0], frame: CGRect(x: 0, y: 0, width: 400, height: 300), scale: 1, image: ctx.makeImage()!)
     }
 
-    private func makeSession(windows: [LocatableWindow] = [], boundary: Int = 200) -> (CaptureSession, OverlayWindow, NSPasteboard) {
+    private func makeSession(windows: [LocatableWindow] = [], boundary: Int = 200,
+                             elements: CaptureSession.ElementDetection = .off) -> (CaptureSession, OverlayWindow, NSPasteboard) {
         let pb = NSPasteboard(name: NSPasteboard.Name("com.kivixiao.cropmark.tests"))
         pb.clearContents()
         finished = false
         focusReturned = false
         let snapshot = makeSnapshot(boundary: boundary)
-        let session = CaptureSession(snapshots: [snapshot], windowList: windows,
+        let session = CaptureSession(snapshots: [snapshot], windowList: windows, elementDetection: elements,
                                      returnFocus: { [weak self] in self?.focusReturned = true }) { [weak self] in self?.finished = true }
         session.pasteboard = pb
         session.exportOptions = ExportOptions(copyAt1x: false, saveAt1x: false, clipboardIncludesFile: false)
@@ -36,7 +37,7 @@ final class OverlayFlowTests: XCTestCase {
     private func makeTwoScreenSession(windows: [LocatableWindow] = []) -> (CaptureSession, [OverlayWindow]) {
         let s1 = makeSnapshot()
         let s2 = ScreenSnapshot(screen: NSScreen.screens[0], frame: CGRect(x: 400, y: 0, width: 400, height: 300), scale: 1, image: s1.image)
-        let session = CaptureSession(snapshots: [s1, s2], windowList: windows) {}
+        let session = CaptureSession(snapshots: [s1, s2], windowList: windows, elementDetection: .off) {}
         return (session, session.makeWindows())
     }
 
@@ -70,7 +71,7 @@ final class OverlayFlowTests: XCTestCase {
     func testSizeLabelReflectsRetinaOutput() {
         let base = makeSnapshot().image   // 400×300 px，当作 2x 屏就是 200×150 pt
         let snap = ScreenSnapshot(screen: NSScreen.screens[0], frame: CGRect(x: 0, y: 0, width: 200, height: 150), scale: 2, image: base)
-        let session = CaptureSession(snapshots: [snap], windowList: []) {}
+        let session = CaptureSession(snapshots: [snap], windowList: [], elementDetection: .off) {}
         session.exportOptions = ExportOptions(copyAt1x: false, saveAt1x: false, clipboardIncludesFile: false)
         let view = session.makeWindows()[0].overlayView
         let r = CGRect(x: 10, y: 10, width: 101, height: 50)
@@ -149,6 +150,51 @@ final class OverlayFlowTests: XCTestCase {
         XCTAssertTrue(finished)
         XCTAssertTrue(focusReturned)
         XCTAssertNil(pb.data(forType: .png))
+    }
+
+    /// 悬停时先给整窗高亮，元素级识别回来后收紧到对话框；单击采纳的是收紧后的矩形。
+    func testHoverNarrowsToInAppDialogAndClickTakesIt() {
+        let pid: pid_t = 4242
+        let win = LocatableWindow(frame: CGRect(x: 40, y: 60, width: 200, height: 160), pid: pid)  // 屏幕高 300
+        let dialog = CGRect(x: 80, y: 100, width: 120, height: 80)
+        let stub = StubElementLocator()
+        stub.blocks = [LocatableElement(frame: dialog)]
+        let (session, window, _) = makeSession(windows: [win], elements: .injected(stub))
+        defer { withExtendedLifetime(session) {} }
+        let view = window.overlayView
+
+        // 窗口内、但在对话框外：只该拿到整窗
+        // 屏幕 (60,80) → 视图 (60, 300-80=220)；窗口 y 60..220 → 视图 y 80..240
+        view.mouseMoved(with: mouse(.mouseMoved, CGPoint(x: 60, y: 220), in: window))
+        XCTAssertEqual(view.hoverRectForTesting, CGRect(x: 40, y: 80, width: 200, height: 160))
+
+        // 对话框内：收紧。屏幕 (120,140) → 视图 (120,160)；对话框 y 100..180 → 视图 y 120..200
+        view.mouseMoved(with: mouse(.mouseMoved, CGPoint(x: 120, y: 160), in: window))
+        XCTAssertEqual(view.hoverRectForTesting, CGRect(x: 80, y: 120, width: 120, height: 80))
+
+        view.mouseDown(with: mouse(.leftMouseDown, CGPoint(x: 120, y: 160), in: window))
+        view.mouseUp(with: mouse(.leftMouseUp, CGPoint(x: 120, y: 160), in: window))
+        XCTAssertEqual(view.currentSelection, CGRect(x: 80, y: 120, width: 120, height: 80))
+    }
+
+    /// 同一个对话框内连续移动只查一次；离开对话框回到窗口空白处不该被缓存挡住。
+    func testDialogRectIsCachedButWholeWindowIsNot() {
+        let pid: pid_t = 4242
+        let win = LocatableWindow(frame: CGRect(x: 40, y: 60, width: 200, height: 160), pid: pid)
+        let stub = StubElementLocator()
+        stub.blocks = [LocatableElement(frame: CGRect(x: 80, y: 100, width: 120, height: 80))]
+        let (session, window, _) = makeSession(windows: [win], elements: .injected(stub))
+        defer { withExtendedLifetime(session) {} }
+        let view = window.overlayView
+
+        view.mouseMoved(with: mouse(.mouseMoved, CGPoint(x: 120, y: 160), in: window))
+        view.mouseMoved(with: mouse(.mouseMoved, CGPoint(x: 130, y: 170), in: window))
+        XCTAssertEqual(stub.queries.count, 1, "同一个对话框内移动应该走缓存")
+
+        // 移到对话框外：整窗结果不缓存，必须重新查，否则以后再移回对话框就发现不了了
+        view.mouseMoved(with: mouse(.mouseMoved, CGPoint(x: 60, y: 220), in: window))
+        XCTAssertEqual(stub.queries.count, 2)
+        XCTAssertEqual(view.hoverRectForTesting, CGRect(x: 40, y: 80, width: 200, height: 160))
     }
 
     func testUnhandledKeyIsSwallowedAndCapsLockUndoWorks() {
@@ -358,5 +404,112 @@ final class CaptureCoordinatorTests: XCTestCase {
         XCTAssertFalse(coordinator.isBusy)
         for _ in 0..<20 { await Task.yield() }
         XCTAssertEqual(probe.grabCount, 0)
+    }
+}
+
+
+/// 存一组假块的命中测试实现。queries 用来断言缓存和单飞真的生效了。
+final class StubElementLocator: ElementLocating {
+    var blocks: [LocatableElement] = []
+    private(set) var queries: [CGPoint] = []
+
+    func element(at point: CGPoint, within window: CGRect) -> LocatableElement? {
+        queries.append(point)
+        return blocks.first { $0.frame.contains(point) }
+    }
+}
+
+/// 真实的异步路径（后台队列 + 单飞）。此前这三个分支一行都没跑到，那个把高亮定在错矩形上的
+/// bug 就住在这里，所以专门拿真队列测。
+@MainActor
+final class HoverResolverTests: XCTestCase {
+    /// 可以卡住的命中测试实现：第 n 次调用会阻塞，直到测试放行。
+    private final class GatedLocator: ElementLocating {
+        var blocks: [LocatableElement] = []
+        /// 第几次调用要卡住（从 1 数起），0 表示不卡
+        var gateCall = 0
+        private let gate = DispatchSemaphore(value: 0)
+        private let lock = NSLock()
+        private var calls = 0
+
+        func open() { gate.signal() }
+        var callCount: Int { lock.lock(); defer { lock.unlock() }; return calls }
+
+        func element(at point: CGPoint, within window: CGRect) -> LocatableElement? {
+            lock.lock(); calls += 1; let n = calls; lock.unlock()
+            if n == gateCall { gate.wait() }
+            return blocks.first { $0.frame.contains(point) }
+        }
+    }
+
+    private let window = CGRect(x: 0, y: 0, width: 400, height: 300)
+    private let dialog = CGRect(x: 100, y: 100, width: 120, height: 80)
+    private let insideDialog = CGPoint(x: 150, y: 140)
+    private let elsewhere = CGPoint(x: 320, y: 40)
+
+    private func settle() {
+        // 后台队列和主队列各跑一轮，让在飞的回调落地
+        let done = expectation(description: "settle")
+        DispatchQueue.global().async { DispatchQueue.main.async { done.fulfill() } }
+        wait(for: [done], timeout: 2)
+    }
+
+    /// 光标移回对话框（命中缓存）之后，那条还在飞的查询回来不能把高亮改回整窗。
+    /// 这正是只看 pending 判过期时的漏洞：命中缓存的请求根本不写 pending。
+    func testStaleResultDoesNotOverwriteACacheHit() {
+        let locator = GatedLocator()
+        locator.blocks = [LocatableElement(frame: dialog)]
+        let resolver = HoverResolver(locator: locator)
+        var delivered: [CGRect] = []
+
+        // ① 停在对话框上，让缓存装上 (window, dialog)
+        resolver.refine(window: window, at: insideDialog) { delivered.append($0) }
+        settle()
+        XCTAssertEqual(delivered, [dialog])
+
+        // ② 移到对话框外，这次查询卡住不返回
+        locator.gateCall = locator.callCount + 1
+        resolver.refine(window: window, at: elsewhere) { delivered.append($0) }
+        // ③ 还没等它回来就移回对话框：命中缓存，立刻拿到 dialog
+        resolver.refine(window: window, at: insideDialog) { delivered.append($0) }
+        XCTAssertEqual(delivered, [dialog, dialog])
+
+        // ④ 放行②的结果。它对应的位置早过期了，不该上屏
+        locator.open()
+        settle()
+        XCTAssertEqual(delivered, [dialog, dialog], "过期结果把高亮改回了整窗：\(delivered)")
+    }
+
+    /// 在飞期间连来多个请求，只保留最新那一条，中间的不该发起查询
+    func testOnlyTheNewestRequestSurvivesWhileOneIsInFlight() {
+        let locator = GatedLocator()
+        locator.blocks = [LocatableElement(frame: dialog)]
+        let resolver = HoverResolver(locator: locator)
+        var delivered: [CGRect] = []
+
+        locator.gateCall = 1
+        resolver.refine(window: window, at: elsewhere) { delivered.append($0) }
+        for _ in 0..<5 { resolver.refine(window: window, at: elsewhere) { delivered.append($0) } }
+        resolver.refine(window: window, at: insideDialog) { delivered.append($0) }
+        locator.open()
+        settle()
+
+        XCTAssertEqual(locator.callCount, 2, "中间那几个请求不该各发一次查询")
+        XCTAssertEqual(delivered, [dialog], "只有最新那条请求的结果该上屏")
+    }
+
+    /// 调用方撤销之后，晚到的结果不能把已经清掉的高亮画回来
+    func testInvalidateDropsAnInFlightResult() {
+        let locator = GatedLocator()
+        locator.blocks = [LocatableElement(frame: dialog)]
+        let resolver = HoverResolver(locator: locator)
+        var delivered: [CGRect] = []
+
+        locator.gateCall = 1
+        resolver.refine(window: window, at: insideDialog) { delivered.append($0) }
+        resolver.invalidate()
+        locator.open()
+        settle()
+        XCTAssertTrue(delivered.isEmpty, "撤销后仍然把结果送上来了：\(delivered)")
     }
 }

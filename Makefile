@@ -5,7 +5,7 @@ XCB         = xcodebuild -project Cropmark.xcodeproj -scheme $(SCHEME) -derivedD
 # 构建用 ad-hoc，装机前用本机的 Apple Development 证书重签，这样重编译后「屏幕录制」权限不会失效
 SIGN_ID    ?= $(shell security find-identity -v -p codesigning 2>/dev/null | awk '/Apple Development|Developer ID Application/ {print $$2; exit}')
 
-.PHONY: gen build sign run stop test install clean icon release
+.PHONY: gen build sign run stop test install clean icon release block-probe
 
 $(DERIVED):
 	mkdir -p $(DERIVED)
@@ -41,6 +41,12 @@ install: sign stop
 	rm -rf /Applications/Cropmark.app
 	cp -R $(APP) /Applications/Cropmark.app
 	open /Applications/Cropmark.app
+
+# 块检测探针：拿真实截图验算法。用法 make block-probe ARGS="图.png 800 500 out.png"
+block-probe:
+	@swiftc -O -parse-as-library -o $(DERIVED)/block-probe \
+	  Cropmark/Capture/BlockDetector.swift scripts/block-probe.swift
+	@$(DERIVED)/block-probe $(ARGS)
 
 # 发布打包（Release 构建 + 签名 + 可选公证 + dmg/zip），产物在 dist/
 release: $(DERIVED)

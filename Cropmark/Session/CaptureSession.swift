@@ -95,15 +95,49 @@ final class CaptureSession {
     /// 导出选项（缩放、附带文件），会话开始时从偏好读一次，测试可覆盖
     var exportOptions: ExportOptions = .current
     private(set) var lastImage: CGImage?
+    /// 块级识别（应用内的弹出对话框）的来源。真正的 resolver 由每块屏幕的覆盖层各建一个，
+    /// 因为识别要看那块屏幕自己的冻结截图。
+    let elementDetection: ElementDetection
+
+    /// 块级识别从哪来。开关只在会话开始时读一次就定了。
+    enum ElementDetection {
+        /// 按偏好开关决定，识别对象是那块屏幕的冻结截图
+        case automatic
+        /// 显式关掉
+        case off
+        /// 注入实现，单测用。同步执行，好让「合成事件 + 立即断言」的写法继续成立。
+        case injected(ElementLocating)
+
+        @MainActor func resolver(for snapshot: ScreenSnapshot) -> HoverResolver? {
+            switch self {
+            case .off:
+                return nil
+            case .injected(let locator):
+                return HoverResolver(locator: locator, queue: nil)
+            case .automatic:
+                guard Preferences.detectInAppDialogs else { return nil }
+                return HoverResolver(locator: BlockLocator(image: snapshot.image,
+                                                           screenFrame: snapshot.frame,
+                                                           scale: snapshot.scale))
+            }
+        }
+    }
 
     init(snapshots: [ScreenSnapshot],
          windowList: [LocatableWindow]? = nil,
+         elementDetection: ElementDetection = .automatic,
          returnFocus: @escaping () -> Void = {},
          onFinish: @escaping () -> Void) {
         self.snapshots = snapshots
         self.onFinish = onFinish
         self.returnFocus = returnFocus
         self.windowList = windowList ?? WindowLocator.onScreenWindows()
+        self.elementDetection = elementDetection
+    }
+
+    /// 光标所在的最上层窗口（裁到该屏），带 pid 供元素级识别使用。
+    func windowHit(at point: CGPoint, clampTo screenFrame: CGRect) -> LocatableWindow? {
+        WindowLocator.topmostHit(at: point, in: windowList, clampTo: screenFrame)
     }
 
     /// 创建（不显示）每块屏幕的覆盖窗。测试用它拿到窗口而不真的盖住屏幕。

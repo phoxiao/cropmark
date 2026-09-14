@@ -7,6 +7,7 @@ enum Preferences {
     private enum Key {
         static let playSound = "playSound"
         static let didRequestScreenCapture = "didRequestScreenCapture"
+        static let detectInAppDialogs = "detectInAppDialogs"
         static let copyAt1x = "copyAt1x"
         static let saveAt1x = "saveAt1x"
         static let clipboardIncludesFile = "clipboardIncludesFile"
@@ -39,6 +40,12 @@ enum Preferences {
     static var didRequestScreenCapture: Bool {
         get { defaults.bool(forKey: Key.didRequestScreenCapture) }
         set { defaults.set(newValue, forKey: Key.didRequestScreenCapture) }
+    }
+
+    /// 悬停时识别应用内部的弹出对话框、面板、卡片。直接看冻结截图的像素，不需要任何额外权限。
+    static var detectInAppDialogs: Bool {
+        get { defaults.object(forKey: Key.detectInAppDialogs) as? Bool ?? true }
+        set { defaults.set(newValue, forKey: Key.detectInAppDialogs) }
     }
 
     /// 登录项的实际状态：enabled / notRegistered / requiresApproval / notFound

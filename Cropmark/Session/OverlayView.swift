@@ -7,6 +7,8 @@ final class OverlayView: NSView {
     /// 会话可能先于窗口释放（晚到的鼠标事件），用 weak 防止悬垂
     private weak var session: CaptureSession?
     private var selection: SelectionModel
+    /// 块级识别：每块屏幕一份，因为它要看这块屏幕自己的冻结截图
+    private let hoverResolver: HoverResolver?
     private let store = AnnotationStore()
     private let toolbar = ToolbarPanel()
 
@@ -29,6 +31,7 @@ final class OverlayView: NSView {
         self.session = session
         let b = CGRect(origin: .zero, size: snapshot.frame.size)
         self.selection = SelectionModel(bounds: b, scale: snapshot.scale)
+        self.hoverResolver = session.elementDetection.resolver(for: snapshot)
         super.init(frame: b)
         wantsLayer = true
         addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
@@ -67,12 +70,18 @@ final class OverlayView: NSView {
     var annotationCount: Int { store.items.count }
     var annotationsForTesting: [Annotation] { store.items }
     var isBystander: Bool { bystander }
+    var hoverRectForTesting: CGRect? { selection.hoverRect }
     func selectToolForTesting(_ t: ToolKind?) { toolbar.selectTool(t) }
     func cursorForTesting(at p: CGPoint) -> NSCursor { cursor(at: p) }
 
     // MARK: 旁观（其他屏幕已有选区）
 
-    func becomeBystander() { bystander = true; selection.hoverRect = nil; needsDisplay = true }
+    func becomeBystander() {
+        bystander = true
+        selection.hoverRect = nil
+        hoverResolver?.invalidate()
+        needsDisplay = true
+    }
     func leaveBystander() { bystander = false; needsDisplay = true }
 
     // MARK: 坐标换算
@@ -84,15 +93,25 @@ final class OverlayView: NSView {
         CGRect(x: r.minX - snapshot.frame.minX, y: snapshot.frame.maxY - r.maxY, width: r.width, height: r.height)
     }
 
+    /// 两阶段：先同步给出窗口级高亮（永远立刻可见），再由元素级识别异步收紧到对话框。
+    /// 用户最差看到的是高亮在几毫秒后缩小一次，不会有卡顿。
     private func updateHover(at p: CGPoint) {
         guard !bystander, !selection.hasSelection else { return }
         let sp = screenPoint(fromView: p)
-        if let w = WindowLocator.topmostWindow(at: sp, in: session?.windowList ?? [], clampTo: snapshot.frame) {
-            selection.hoverRect = viewRect(fromScreen: w)
-        } else {
+        guard let hit = session?.windowHit(at: sp, clampTo: snapshot.frame) else {
             selection.hoverRect = bounds
+            needsDisplay = true
+            return
         }
+        selection.hoverRect = viewRect(fromScreen: hit.frame)
         needsDisplay = true
+        hoverResolver?.refine(window: hit.frame, at: sp) { [weak self] refined in
+            guard let self, !self.bystander, !self.selection.hasSelection else { return }
+            let v = self.viewRect(fromScreen: refined)
+            guard v != self.selection.hoverRect else { return }
+            self.selection.hoverRect = v
+            self.needsDisplay = true
+        }
     }
 
     // MARK: 鼠标
@@ -105,7 +124,10 @@ final class OverlayView: NSView {
         cursor(at: p).set()
     }
     override func mouseExited(with event: NSEvent) {
-        if !selection.hasSelection { selection.hoverRect = nil; needsDisplay = true }
+        guard !selection.hasSelection else { return }
+        selection.hoverRect = nil
+        hoverResolver?.invalidate()
+        needsDisplay = true
     }
     override func mouseMoved(with event: NSEvent) {
         let p = convert(event.locationInWindow, from: nil)

@@ -651,6 +651,16 @@
         }
       }
     },
+    "自动框选应用内的对话框": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto-select dialogs inside apps"
+          }
+        }
+      }
+    },
     "自动检查更新": {
       "localizations": {
         "en": {
