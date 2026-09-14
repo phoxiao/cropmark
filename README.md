@@ -7,7 +7,7 @@ A lightweight screenshot tool for macOS. Press `⌃⌘A`, drag a region, annotat
 ## Features
 
 - Global hotkey (`⌃⌘A` by default, changeable)
-- Freezes every screen the instant you press it; hover to auto-detect a window, click to select the whole thing
+- Freezes every screen the instant you press it; hover to auto-detect a window — or a dialog, panel or card *inside* it — and click to take it
 - Drag to select a region with a live pixel-size readout; release to get 8 resize handles, drag inside to move
 - Annotation tools: rectangle / ellipse / arrow / pen / mosaic / text, 6 colors and 3 weights, `⌘Z` to undo
   - Hold Shift for a perfect square or circle; arrows snap to 45°
