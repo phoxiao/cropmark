@@ -261,6 +261,16 @@
         }
       }
     },
+    "对话框识别不会自己触发：截图时按住 ⌘ 才从整个窗口收紧到光标下的对话框、面板或卡片，松开就回到整窗。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dialog detection never fires on its own: hold ⌘ while capturing to shrink the highlight from the whole window down to the dialog, panel or card under the cursor. Release it and the whole window is back."
+          }
+        }
+      }
+    },
     "尚未授权，按快捷键不会有反应": {
       "localizations": {
         "en": {
@@ -387,6 +397,26 @@
           "stringUnit": {
             "state": "translated",
             "value": "Drag"
+          }
+        }
+      }
+    },
+    "按住 ⌘ 时识别应用内的对话框": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hold ⌘ to detect dialogs inside apps"
+          }
+        }
+      }
+    },
+    "按住 ⌘ 识别对话框": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hold ⌘ to detect a dialog"
           }
         }
       }
@@ -647,16 +677,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Downscaling"
-          }
-        }
-      }
-    },
-    "自动框选应用内的对话框": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Auto-select dialogs inside apps"
           }
         }
       }

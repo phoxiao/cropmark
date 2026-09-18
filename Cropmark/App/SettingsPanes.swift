@@ -26,10 +26,11 @@ struct GeneralPane: View {
         )
     }
 
-    private var launchFooter: String? {
-        launchStatus == .requiresApproval
-            ? L10n.t("系统要求在「登录项与扩展」里手动允许 Cropmark，允许后这里会自动变为开启。")
-            : nil
+    /// 「行为」分组的说明。登录项需要用户手动审批时，那句排在前面，两句都给。
+    private var behaviorFooter: String {
+        let dialogs = L10n.t("对话框识别不会自己触发：截图时按住 ⌘ 才从整个窗口收紧到光标下的对话框、面板或卡片，松开就回到整窗。")
+        guard launchStatus == .requiresApproval else { return dialogs }
+        return L10n.t("系统要求在「登录项与扩展」里手动允许 Cropmark，允许后这里会自动变为开启。") + "\n" + dialogs
     }
 
     var body: some View {
@@ -39,7 +40,7 @@ struct GeneralPane: View {
                     KeyboardShortcuts.Recorder(for: .capture) { _ in onShortcutChange() }
                 }
             }
-            SettingsSection(title: L10n.t("行为"), footer: launchFooter) {
+            SettingsSection(title: L10n.t("行为"), footer: behaviorFooter) {
                 SettingsRow(L10n.t("截图完成后播放提示音")) {
                     Toggle("", isOn: $playSound).labelsHidden().toggleStyle(.switch)
                         .onChange(of: playSound) { _, v in Preferences.playSound = v }
@@ -49,7 +50,7 @@ struct GeneralPane: View {
                     Toggle("", isOn: launchAtLogin).labelsHidden().toggleStyle(.switch)
                 }
                 Divider().padding(.leading, 14)
-                SettingsRow(L10n.t("自动框选应用内的对话框")) {
+                SettingsRow(L10n.t("按住 ⌘ 时识别应用内的对话框")) {
                     Toggle("", isOn: $detectDialogs).labelsHidden().toggleStyle(.switch)
                         .onChange(of: detectDialogs) { _, v in Preferences.detectInAppDialogs = v }
                 }

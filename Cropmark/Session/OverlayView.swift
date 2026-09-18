@@ -24,10 +24,20 @@ final class OverlayView: NSView {
     /// 标注的选中与拖拽。画完自动选中，之后点它的边线可重新选中
     private var editor: AnnotationEditor
     private var bystander = false
+    /// 门控用的修饰键当前是否按着。记下来是为了知道它什么时候翻转——那一帧即使高亮矩形没变也要重画。
+    private var dialogModifierHeld = false
+    /// 最后一次算悬停用的视图坐标。修饰键变化事件不带鼠标位置，靠它重算；
+    /// 光标移出本屏或进入旁观时清掉，免得拿一个早已失效的点去做命中测试。
+    private var lastHoverPoint: CGPoint?
     private var pixelCache: [Thickness: CGImage] = [:]
     private lazy var renderer = AnnotationRenderer(screenSize: bounds.size) { [weak self] t in self?.pixelated(t) }
 
     private static let dimColor = NSColor(white: 0, alpha: 0.45)
+    /// 尺寸标签和悬停提示共用的胶囊底色
+    private static let capsuleColor = NSColor(white: 0, alpha: 0.7).cgColor
+    /// 按住它才做块级识别（应用内的对话框、面板、卡片）。常开太灵敏：
+    /// 想框整个窗口时高亮总在自己缩小，反而要多操作一步。
+    private static let dialogModifier: NSEvent.ModifierFlags = .command
 
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { true }
@@ -87,6 +97,7 @@ final class OverlayView: NSView {
     func becomeBystander() {
         bystander = true
         selection.hoverRect = nil
+        lastHoverPoint = nil
         hoverResolver?.invalidate()
         needsDisplay = true
     }
@@ -101,19 +112,33 @@ final class OverlayView: NSView {
         CGRect(x: r.minX - snapshot.frame.minX, y: snapshot.frame.maxY - r.maxY, width: r.width, height: r.height)
     }
 
-    /// 两阶段：先同步给出窗口级高亮（永远立刻可见），再由元素级识别异步收紧到对话框。
+    /// 两阶段：先同步给出窗口级高亮（永远立刻可见），按住 ⌘ 时再由元素级识别异步收紧到对话框。
     /// 用户最差看到的是高亮在几毫秒后缩小一次，不会有卡顿。
-    private func updateHover(at p: CGPoint) {
+    private func updateHover(at p: CGPoint, modifiers: NSEvent.ModifierFlags) {
         guard !bystander, !selection.hasSelection else { return }
+        lastHoverPoint = p
+        let held = modifiers.contains(Self.dialogModifier)
+        let gateChanged = held != dialogModifierHeld
+        dialogModifierHeld = held
+
         let sp = screenPoint(fromView: p)
-        guard let hit = session?.windowHit(at: sp, clampTo: snapshot.frame) else {
-            selection.hoverRect = bounds
+        let hit = session?.windowHit(at: sp, clampTo: snapshot.frame)
+        // 同一个矩形不重复标脏：draw 不看 dirtyRect，每帧都要把「整屏减去洞」的遮罩重铺一遍，
+        // 光标在同一个窗口里晃的那几十帧全是白干。门控翻转那一帧例外，底部提示要跟着出现/消失
+        let rect = hit.map { viewRect(fromScreen: $0.frame) } ?? bounds
+        if gateChanged || rect != selection.hoverRect {
+            selection.hoverRect = rect
             needsDisplay = true
+        }
+
+        guard let hit, held, let resolver = hoverResolver else {
+            // 松键之前发出的那次查询还在飞：不作废的话它回来会把高亮又缩回去，
+            // 而且之后不会再有事件来清一次
+            hoverResolver?.invalidate()
             return
         }
-        selection.hoverRect = viewRect(fromScreen: hit.frame)
-        needsDisplay = true
-        hoverResolver?.refine(window: hit.frame, at: sp) { [weak self] refined in
+        if !Preferences.didUseDialogModifier { Preferences.didUseDialogModifier = true }
+        resolver.refine(window: hit.frame, at: sp) { [weak self] refined in
             guard let self, !self.bystander, !self.selection.hasSelection else { return }
             let v = self.viewRect(fromScreen: refined)
             guard v != self.selection.hoverRect else { return }
@@ -128,18 +153,19 @@ final class OverlayView: NSView {
         guard !bystander else { return }
         if session?.activeView == nil { window?.makeKey() }
         let p = convert(event.locationInWindow, from: nil)
-        updateHover(at: p)
+        updateHover(at: p, modifiers: event.modifierFlags)
         cursor(at: p).set()
     }
     override func mouseExited(with event: NSEvent) {
         guard !selection.hasSelection else { return }
         selection.hoverRect = nil
+        lastHoverPoint = nil
         hoverResolver?.invalidate()
         needsDisplay = true
     }
     override func mouseMoved(with event: NSEvent) {
         let p = convert(event.locationInWindow, from: nil)
-        updateHover(at: p)
+        updateHover(at: p, modifiers: event.modifierFlags)
         cursor(at: p).set()
     }
 
@@ -160,6 +186,7 @@ final class OverlayView: NSView {
         }
         // ② 工具亮着就在选区内画新的：亮着的工具是一个显式的模式声明。
         //    按住 ⌘ 让路，给"就是想改旧框"留个不用先关工具的出口
+        //    （⌘ 在悬停阶段是另一件事——识别对话框，见 dialogModifier；两个阶段互斥，不打架）
         if let tool, r.contains(p), !event.modifierFlags.contains(.command) {
             // 先记下脚底下踩着谁，但别动选中态：这一下到底算"画新的"还是算"点选"，
             // 要等松手时看画出来的东西够不够大才知道
@@ -328,11 +355,11 @@ final class OverlayView: NSView {
         if bystander {
             // 选区在别的屏幕上：右键清掉它，回到所有屏幕都可框选的状态
             session?.clearSelection()
-            updateHover(at: p)
+            updateHover(at: p, modifiers: event.modifierFlags)
             cursor(at: p).set()
         } else if selection.hasSelection {
             resetSelection()
-            updateHover(at: p)
+            updateHover(at: p, modifiers: event.modifierFlags)
             cursor(at: p).set()
         } else {
             session?.cancel()
@@ -349,6 +376,13 @@ final class OverlayView: NSView {
         toolbar.isHidden = true
         session?.selectionDidClear()
         needsDisplay = true
+    }
+
+    /// 按下 / 松开 ⌘ 时没有鼠标事件可用，就拿最后一次悬停的点重算：光标只要在本屏移动过，
+    /// 那个点就是它现在的位置。无关的修饰键也会走到这里，但重算后矩形没变就不会重画。
+    override func flagsChanged(with event: NSEvent) {
+        guard let p = lastHoverPoint else { return }
+        updateHover(at: p, modifiers: event.modifierFlags)
     }
 
     override func keyDown(with event: NSEvent) {
@@ -658,6 +692,55 @@ final class OverlayView: NSView {
         if let a = selectedAnnotation, let sel = selection.rect {
             drawSelectionChrome(for: a, within: sel, in: ctx)
         }
+        if shouldShowDialogHint { drawDialogHint(in: ctx) }
+    }
+
+    /// 只在悬停阶段提示，而且只提示到用户真的按过一次 ⌘ 为止——
+    /// 这是个每天用几十次的工具，学会之后还天天弹一条就是噪音了。
+    /// 高亮是整屏（没命中窗口）时不提示：那种位置按 ⌘ 也没东西可收紧。
+    private var shouldShowDialogHint: Bool {
+        guard !bystander, !selection.hasSelection, !dialogModifierHeld,
+              let hover = selection.hoverRect, hover != bounds,
+              hoverResolver != nil, !Preferences.didUseDialogModifier
+        else { return false }
+        return true
+    }
+
+    /// 提示的文字、胶囊、文字落点整个会话都不变（覆盖视图的 bounds 是固定的那块屏幕），
+    /// 建一次存着：不然每帧都要查一次本地化表、找一次字体、把同一句话重新排版两遍。
+    private lazy var dialogHint: (text: NSAttributedString, box: CGRect, textAt: CGPoint) = {
+        let text = NSAttributedString(string: L10n.t("按住 ⌘ 识别对话框"), attributes: [
+            .font: NSFont.systemFont(ofSize: 13, weight: .medium),
+            .foregroundColor: NSColor.white,
+        ])
+        let pad = CGSize(width: 12, height: 7)
+        let size = text.size()
+        // 底部居中，离底边 40 点
+        let origin = CGPoint(x: ((bounds.width - size.width) / 2).rounded(),
+                             y: bounds.maxY - 40 - size.height - pad.height)
+        let box = CGRect(x: origin.x - pad.width, y: origin.y - pad.height,
+                         width: size.width + pad.width * 2, height: size.height + pad.height * 2)
+        return (text, box, origin)
+    }()
+
+    /// 和尺寸标签同款的深色胶囊，圆角拉满成药丸形，和那个方角标签一眼分得开。
+    private func drawDialogHint(in ctx: CGContext) {
+        drawCapsule(dialogHint.text, in: dialogHint.box, corner: dialogHint.box.height / 2,
+                    textAt: dialogHint.textAt, in: ctx)
+    }
+
+    /// 深色圆角胶囊 + 白字。翻转坐标系里画 NSAttributedString 要临时换一个 NSGraphicsContext，
+    /// 这套小花招只留一份，调用方只管把盒子放在哪。
+    private func drawCapsule(_ attr: NSAttributedString, in box: CGRect, corner: CGFloat,
+                             textAt: CGPoint, in ctx: CGContext) {
+        ctx.setFillColor(Self.capsuleColor)
+        ctx.addPath(CGPath(roundedRect: box, cornerWidth: corner, cornerHeight: corner, transform: nil))
+        ctx.fillPath()
+        let gc = NSGraphicsContext(cgContext: ctx, flipped: true)
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = gc
+        attr.draw(at: textAt)
+        NSGraphicsContext.restoreGraphicsState()
     }
 
     /// 选中标注的装饰：外扩的虚线框 + 把手。
@@ -719,13 +802,6 @@ final class OverlayView: NSView {
         }
         origin.x = min(max(origin.x, 0), bounds.maxX - size.width - pad * 2)
         bg = CGRect(x: origin.x, y: origin.y, width: size.width + pad * 2, height: size.height + pad)
-        ctx.setFillColor(NSColor(white: 0, alpha: 0.7).cgColor)
-        ctx.addPath(CGPath(roundedRect: bg, cornerWidth: 4, cornerHeight: 4, transform: nil))
-        ctx.fillPath()
-        let gc = NSGraphicsContext(cgContext: ctx, flipped: true)
-        NSGraphicsContext.saveGraphicsState()
-        NSGraphicsContext.current = gc
-        attr.draw(at: CGPoint(x: bg.minX + pad, y: bg.minY + pad / 2))
-        NSGraphicsContext.restoreGraphicsState()
+        drawCapsule(attr, in: bg, corner: 4, textAt: CGPoint(x: bg.minX + pad, y: bg.minY + pad / 2), in: ctx)
     }
 }

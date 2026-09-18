@@ -8,6 +8,7 @@ enum Preferences {
         static let playSound = "playSound"
         static let didRequestScreenCapture = "didRequestScreenCapture"
         static let detectInAppDialogs = "detectInAppDialogs"
+        static let didUseDialogModifier = "didUseDialogModifier"
         static let copyAt1x = "copyAt1x"
         static let saveAt1x = "saveAt1x"
         static let clipboardIncludesFile = "clipboardIncludesFile"
@@ -42,10 +43,17 @@ enum Preferences {
         set { defaults.set(newValue, forKey: Key.didRequestScreenCapture) }
     }
 
-    /// 悬停时识别应用内部的弹出对话框、面板、卡片。直接看冻结截图的像素，不需要任何额外权限。
+    /// 识别应用内部的弹出对话框、面板、卡片的总闸。直接看冻结截图的像素，不需要任何额外权限。
+    /// 开着也不会自动识别：截图时还要按住 ⌘ 才触发（见 OverlayView.dialogModifier）。
     static var detectInAppDialogs: Bool {
         get { defaults.object(forKey: Key.detectInAppDialogs) as? Bool ?? true }
         set { defaults.set(newValue, forKey: Key.detectInAppDialogs) }
+    }
+
+    /// 用户是否已经按过一次 ⌘ 来识别对话框。按过就不再在截图覆盖层上提示这个键。
+    static var didUseDialogModifier: Bool {
+        get { defaults.bool(forKey: Key.didUseDialogModifier) }
+        set { defaults.set(newValue, forKey: Key.didUseDialogModifier) }
     }
 
     /// 登录项的实际状态：enabled / notRegistered / requiresApproval / notFound

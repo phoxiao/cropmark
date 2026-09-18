@@ -51,6 +51,11 @@ final class OverlayFlowTests: XCTestCase {
         NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: 0, windowNumber: w.windowNumber,
                          context: nil, characters: chars, charactersIgnoringModifiers: chars, isARepeat: false, keyCode: code)!
     }
+    /// 修饰键变化事件。keyCode 55 是左 Command，flagsChanged 只看 modifierFlags，键码只是占位。
+    private func flags(_ f: NSEvent.ModifierFlags, in w: NSWindow) -> NSEvent {
+        NSEvent.keyEvent(with: .flagsChanged, location: .zero, modifierFlags: f, timestamp: 0, windowNumber: w.windowNumber,
+                         context: nil, characters: "", charactersIgnoringModifiers: "", isARepeat: false, keyCode: 55)!
+    }
     private func drag(_ v: OverlayView, from a: CGPoint, to b: CGPoint, in w: NSWindow, flags: NSEvent.ModifierFlags = []) {
         v.mouseDown(with: mouse(.leftMouseDown, a, in: w, flags: flags))
         v.mouseDragged(with: mouse(.leftMouseDragged, CGPoint(x: (a.x + b.x) / 2, y: (a.y + b.y) / 2), in: w, flags: flags))
@@ -152,49 +157,93 @@ final class OverlayFlowTests: XCTestCase {
         XCTAssertNil(pb.data(forType: .png))
     }
 
-    /// 悬停时先给整窗高亮，元素级识别回来后收紧到对话框；单击采纳的是收紧后的矩形。
-    func testHoverNarrowsToInAppDialogAndClickTakesIt() {
-        let pid: pid_t = 4242
-        let win = LocatableWindow(frame: CGRect(x: 40, y: 60, width: 200, height: 160), pid: pid)  // 屏幕高 300
-        let dialog = CGRect(x: 80, y: 100, width: 120, height: 80)
+    // MARK: 对话框识别（悬停 + ⌘）
+
+    /// 屏幕 300 高，摆一个窗口 (40,60,200×160)，里面一个对话框 (80,100,120×80)，都是屏幕坐标（y 向上）。
+    /// 视图坐标 y 向下，所以断言用的是下面这两个换算好的矩形。
+    private static let windowInView = CGRect(x: 40, y: 80, width: 200, height: 160)
+    private static let dialogInView = CGRect(x: 80, y: 120, width: 120, height: 80)
+    /// 视图坐标：对话框正中间（屏幕 120,140）、窗口内但在对话框外（屏幕 60,80）
+    private static let inDialog = CGPoint(x: 120, y: 160)
+    private static let besideDialog = CGPoint(x: 60, y: 220)
+
+    private func makeDialogSession() -> (CaptureSession, OverlayWindow, StubElementLocator) {
+        let win = LocatableWindow(frame: CGRect(x: 40, y: 60, width: 200, height: 160), pid: 4242)
         let stub = StubElementLocator()
-        stub.blocks = [LocatableElement(frame: dialog)]
+        stub.blocks = [LocatableElement(frame: CGRect(x: 80, y: 100, width: 120, height: 80))]
         let (session, window, _) = makeSession(windows: [win], elements: .injected(stub))
+        return (session, window, stub)
+    }
+
+    /// 按住 ⌘ 悬停：先给整窗高亮，元素级识别回来后收紧到对话框；单击采纳的是收紧后的矩形。
+    func testHoverNarrowsToInAppDialogAndClickTakesIt() {
+        keepDialogHintPreference()
+        let (session, window, _) = makeDialogSession()
         defer { withExtendedLifetime(session) {} }
         let view = window.overlayView
 
         // 窗口内、但在对话框外：只该拿到整窗
-        // 屏幕 (60,80) → 视图 (60, 300-80=220)；窗口 y 60..220 → 视图 y 80..240
-        view.mouseMoved(with: mouse(.mouseMoved, CGPoint(x: 60, y: 220), in: window))
-        XCTAssertEqual(view.hoverRectForTesting, CGRect(x: 40, y: 80, width: 200, height: 160))
+        view.mouseMoved(with: mouse(.mouseMoved, Self.besideDialog, in: window, flags: .command))
+        XCTAssertEqual(view.hoverRectForTesting, Self.windowInView)
 
-        // 对话框内：收紧。屏幕 (120,140) → 视图 (120,160)；对话框 y 100..180 → 视图 y 120..200
-        view.mouseMoved(with: mouse(.mouseMoved, CGPoint(x: 120, y: 160), in: window))
-        XCTAssertEqual(view.hoverRectForTesting, CGRect(x: 80, y: 120, width: 120, height: 80))
+        // 对话框内：收紧
+        view.mouseMoved(with: mouse(.mouseMoved, Self.inDialog, in: window, flags: .command))
+        XCTAssertEqual(view.hoverRectForTesting, Self.dialogInView)
 
-        view.mouseDown(with: mouse(.leftMouseDown, CGPoint(x: 120, y: 160), in: window))
-        view.mouseUp(with: mouse(.leftMouseUp, CGPoint(x: 120, y: 160), in: window))
-        XCTAssertEqual(view.currentSelection, CGRect(x: 80, y: 120, width: 120, height: 80))
+        view.mouseDown(with: mouse(.leftMouseDown, Self.inDialog, in: window, flags: .command))
+        view.mouseUp(with: mouse(.leftMouseUp, Self.inDialog, in: window, flags: .command))
+        XCTAssertEqual(view.currentSelection, Self.dialogInView)
     }
 
     /// 同一个对话框内连续移动只查一次；离开对话框回到窗口空白处不该被缓存挡住。
     func testDialogRectIsCachedButWholeWindowIsNot() {
-        let pid: pid_t = 4242
-        let win = LocatableWindow(frame: CGRect(x: 40, y: 60, width: 200, height: 160), pid: pid)
-        let stub = StubElementLocator()
-        stub.blocks = [LocatableElement(frame: CGRect(x: 80, y: 100, width: 120, height: 80))]
-        let (session, window, _) = makeSession(windows: [win], elements: .injected(stub))
+        keepDialogHintPreference()
+        let (session, window, stub) = makeDialogSession()
         defer { withExtendedLifetime(session) {} }
         let view = window.overlayView
 
-        view.mouseMoved(with: mouse(.mouseMoved, CGPoint(x: 120, y: 160), in: window))
-        view.mouseMoved(with: mouse(.mouseMoved, CGPoint(x: 130, y: 170), in: window))
+        view.mouseMoved(with: mouse(.mouseMoved, Self.inDialog, in: window, flags: .command))
+        view.mouseMoved(with: mouse(.mouseMoved, CGPoint(x: 130, y: 170), in: window, flags: .command))
         XCTAssertEqual(stub.queries.count, 1, "同一个对话框内移动应该走缓存")
 
         // 移到对话框外：整窗结果不缓存，必须重新查，否则以后再移回对话框就发现不了了
-        view.mouseMoved(with: mouse(.mouseMoved, CGPoint(x: 60, y: 220), in: window))
+        view.mouseMoved(with: mouse(.mouseMoved, Self.besideDialog, in: window, flags: .command))
         XCTAssertEqual(stub.queries.count, 2)
-        XCTAssertEqual(view.hoverRectForTesting, CGRect(x: 40, y: 80, width: 200, height: 160))
+        XCTAssertEqual(view.hoverRectForTesting, Self.windowInView)
+    }
+
+    /// 不按 ⌘ 就只给整窗高亮，块级识别一次都不该跑——常开太灵敏正是这次要改掉的毛病。
+    func testHoverWithoutModifierKeepsWholeWindow() {
+        let (session, window, stub) = makeDialogSession()
+        defer { withExtendedLifetime(session) {} }
+        let view = window.overlayView
+
+        // 对话框正中间，但没按 ⌘
+        view.mouseMoved(with: mouse(.mouseMoved, Self.inDialog, in: window))
+        XCTAssertEqual(view.hoverRectForTesting, Self.windowInView)
+        XCTAssertEqual(stub.queries.count, 0, "没按 ⌘ 不该发起识别")
+
+        view.mouseDown(with: mouse(.leftMouseDown, Self.inDialog, in: window))
+        view.mouseUp(with: mouse(.leftMouseUp, Self.inDialog, in: window))
+        XCTAssertEqual(view.currentSelection, Self.windowInView)
+    }
+
+    /// 松开 ⌘ 当场回到整窗：修饰键变化不带鼠标位置，靠上一次悬停记下的点重算。
+    func testReleasingModifierFallsBackToWholeWindow() {
+        keepDialogHintPreference()
+        let (session, window, _) = makeDialogSession()
+        defer { withExtendedLifetime(session) {} }
+        let view = window.overlayView
+
+        view.mouseMoved(with: mouse(.mouseMoved, Self.inDialog, in: window, flags: .command))
+        XCTAssertEqual(view.hoverRectForTesting, Self.dialogInView)
+
+        view.flagsChanged(with: flags([], in: window))
+        XCTAssertEqual(view.hoverRectForTesting, Self.windowInView)
+
+        // 再按回去还能收紧
+        view.flagsChanged(with: flags(.command, in: window))
+        XCTAssertEqual(view.hoverRectForTesting, Self.dialogInView)
     }
 
     func testUnhandledKeyIsSwallowedAndCapsLockUndoWorks() {

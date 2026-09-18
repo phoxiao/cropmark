@@ -11,8 +11,9 @@ enum SettingsLayout {
 
 extension XCTestCase {
     /// 把视图离屏渲染成 PNG 落到构建缓存目录，供人工检查排版。
-    /// 目录自己建，裸 xcodebuild test 也能跑。
-    func savePreview(_ view: NSView, _ name: String) throws {
+    /// 目录自己建，裸 xcodebuild test 也能跑。渲染出的位图一并返回，要断言像素的用得上。
+    @discardableResult
+    func savePreview(_ view: NSView, _ name: String) throws -> NSBitmapImageRep {
         view.layoutSubtreeIfNeeded()
         let rep = try XCTUnwrap(view.bitmapImageRepForCachingDisplay(in: view.bounds))
         view.cacheDisplay(in: view.bounds, to: rep)
@@ -21,6 +22,14 @@ extension XCTestCase {
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         try XCTUnwrap(rep.representation(using: .png, properties: [:]))
             .write(to: dir.appendingPathComponent(name))
+        return rep
+    }
+
+    /// 用例会把「已经用过 ⌘ 识别对话框」这个偏好置位。跑完还原：别改掉这台机器上的真实设置，
+    /// 也别让先跑的用例把后面用例要看的提示提前关掉。
+    func keepDialogHintPreference() {
+        let saved = Preferences.didUseDialogModifier
+        addTeardownBlock { Preferences.didUseDialogModifier = saved }
     }
 
     /// 逐个分页建设置窗口，断言尺寸落在合理区间，并各渲染一张 PNG。

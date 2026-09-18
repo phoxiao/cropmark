@@ -70,4 +70,38 @@ final class PreviewRenderTests: XCTestCase {
         let dir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Caches/CropmarkBuild")
         try XCTUnwrap(Exporter.pngData(img, scale: 2)).write(to: dir.appendingPathComponent("preview-4-export.png"))
     }
+
+    /// 底部的「按住 ⌘ 识别对话框」提示：没按过 ⌘ 的用户看得到，按过一次之后永久不再画。
+    /// 断言方式是同一视图渲染两次逐行比对——不用猜胶囊落在哪个像素上。
+    func testDialogHintShowsUntilModifierUsed() throws {
+        keepDialogHintPreference()
+        Preferences.didUseDialogModifier = false
+
+        let snap = gradientSnapshot()
+        let session = CaptureSession(snapshots: [snap], windowList: [LocatableWindow(frame: CGRect(x: 150, y: 125, width: 250, height: 175), pid: 1)],
+                                     elementDetection: .injected(StubElementLocator())) {}
+        defer { withExtendedLifetime(session) {} }
+        let window = session.makeWindows()[0]
+        let view = window.overlayView
+        let canvas = try XCTUnwrap(window.contentView)
+
+        view.mouseMoved(with: mouse(.mouseMoved, CGPoint(x: 250, y: 150), in: window))
+        let withHint = try savePreview(canvas, "preview-1b-hint.png")
+
+        Preferences.didUseDialogModifier = true
+        view.needsDisplay = true
+        let without = try savePreview(canvas, "preview-1b-hint-dismissed.png")
+
+        // 胶囊贴着屏幕底部，两张图的差异只该出现在下四分之一
+        let row = try XCTUnwrap(firstDifferingRow(withHint, without), "提示胶囊没画出来")
+        XCTAssertGreaterThan(row, withHint.pixelsHigh * 3 / 4)
+    }
+
+    private func firstDifferingRow(_ a: NSBitmapImageRep, _ b: NSBitmapImageRep) throws -> Int? {
+        XCTAssertEqual(a.pixelsHigh, b.pixelsHigh)
+        XCTAssertEqual(a.bytesPerRow, b.bytesPerRow)
+        let pa = try XCTUnwrap(a.bitmapData), pb = try XCTUnwrap(b.bitmapData)
+        let bpr = a.bytesPerRow
+        return (0..<a.pixelsHigh).first { memcmp(pa + $0 * bpr, pb + $0 * bpr, bpr) != 0 }
+    }
 }
