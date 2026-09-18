@@ -9,7 +9,8 @@ final class TextEditorOverlay: NSTextView {
     /// 折行宽度（点），从落点到选区右边界
     private(set) var maxWidth: CGFloat = 0
 
-    static func make(at origin: CGPoint, style: Style, maxWidth: CGFloat) -> TextEditorOverlay {
+    /// text 非空即为"重新编辑一条已提交的文字"：预填内容、撑开高度、光标落到末尾。
+    static func make(at origin: CGPoint, style: Style, maxWidth: CGFloat, text: String = "") -> TextEditorOverlay {
         let width = max(maxWidth, 40)
         let tv = TextEditorOverlay(frame: NSRect(origin: origin, size: CGSize(width: width, height: style.thickness.fontSize * 1.5)))
         tv.maxWidth = width
@@ -27,6 +28,15 @@ final class TextEditorOverlay: NSTextView {
         tv.isAutomaticQuoteSubstitutionEnabled = false
         tv.isAutomaticDashSubstitutionEnabled = false
         tv.isAutomaticTextReplacementEnabled = false
+        if !text.isEmpty {
+            tv.string = text
+            tv.apply(style: style)   // 设完内容再刷一遍，字体颜色才落到已有文字上
+            // 用和渲染同一份测量撑开高度，否则多行文字一进来就被框裁掉
+            let h = AnnotationRenderer.textRect(AnnotationRenderer.attributedText(text, style: style),
+                                                origin: origin, maxWidth: width).height
+            tv.frame.size.height = max(h, style.thickness.fontSize * 1.5)
+            tv.setSelectedRange(NSRange(location: (text as NSString).length, length: 0))
+        }
         return tv
     }
 
@@ -45,10 +55,9 @@ final class TextEditorOverlay: NSTextView {
         insertionPointColor = style.color
     }
 
-    func commit() {
-        let s = string.trimmingCharacters(in: .whitespacesAndNewlines)
-        if s.isEmpty { onCancel?() } else { onCommit?(s) }
-    }
+    /// 空内容不再偷偷走 onCancel：新建时"空"是不留东西，重编辑时"空"是删掉这一条，
+    /// 而 Esc 无论哪种都是放弃改动。三件事语义不同，交给调用方判断。
+    func commit() { onCommit?(string.trimmingCharacters(in: .whitespacesAndNewlines)) }
 
     override func resetCursorRects() { addCursorRect(bounds, cursor: .iBeam) }
 }

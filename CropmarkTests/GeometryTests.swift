@@ -325,7 +325,7 @@ final class ImageComposerTests: XCTestCase {
         let style = Style(color: NSColor(srgbRed: 0, green: 0, blue: 1, alpha: 1), thickness: .thick)
         // 选区 (20,20)-(80,80)；在视图坐标 (30..50, 30..50) 画实心一样粗的矩形
         let out = ImageComposer.compose(snapshot: snap, selection: CGRect(x: 20, y: 20, width: 60, height: 60),
-                                        annotations: [.rect(CGRect(x: 30, y: 30, width: 20, height: 20), style)], renderer: renderer)!
+                                        annotations: [Annotation(shape: .rect(CGRect(x: 30, y: 30, width: 20, height: 20)), style: style)], renderer: renderer)!
         XCTAssertEqual(out.width, 60)
         // 矩形左上角在导出图里应落在 (10,10) 附近，线宽 6 → (10..16) 是蓝
         XCTAssertEqual(pixel(out, x: 12, y: 12), [0, 0, 255])

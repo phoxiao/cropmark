@@ -296,7 +296,7 @@ final class OverlayFlowTests: XCTestCase {
         editor.commit()
         XCTAssertEqual(view.annotationCount, 1)
         XCTAssertTrue(view.subviews.compactMap { $0 as? TextEditorOverlay }.isEmpty, "editor should be removed after commit")
-        guard case .text(let s, let origin, let maxWidth, _) = try XCTUnwrap(view.annotationsForTesting.first) else { return XCTFail("not text") }
+        guard case .text(let s, let origin, let maxWidth) = try XCTUnwrap(view.annotationsForTesting.first).shape else { return XCTFail("not text") }
         XCTAssertEqual(s, "Cropmark Cropmark")
         XCTAssertEqual(origin, CGPoint(x: 200, y: 100))
         XCTAssertEqual(maxWidth, 50)
@@ -352,6 +352,37 @@ final class ToolbarPanelTests: XCTestCase {
         }
         tb.selectTool(nil)
         XCTAssertEqual(tb.preferredSize.height, collapsed)
+    }
+
+    /// 没选工具但选中了标注时，选项行也要展开——否则改颜色/粗细根本没有可点的控件。
+    /// 高度同样必须算进面板，不然那一行悬在外面点不到。
+    func testSelectedAnnotationExpandsTheOptionRow() {
+        let host = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 600, height: 400), styleMask: .borderless, backing: .buffered, defer: false)
+        let tb = ToolbarPanel()
+        host.contentView?.addSubview(tb)
+        let collapsed = tb.preferredSize.height
+
+        tb.hasSelectedAnnotation = true
+        XCTAssertEqual(tb.preferredSize.height, collapsed + ToolbarPanel.optionRowHeight, "没工具但有选中")
+        tb.frame = CGRect(origin: .zero, size: tb.preferredSize)
+        tb.layoutSubtreeIfNeeded()
+        for row in tb.subviews where !row.isHidden {
+            XCTAssertTrue(tb.bounds.contains(row.frame), "row \(row.frame) outside panel \(tb.bounds)")
+        }
+
+        // 选中马赛克：颜色藏起来，但那一行还在，高度不变
+        tb.showStyle(Style(color: Palette.colors[0], thickness: .thick), colorsEnabled: false)
+        XCTAssertEqual(tb.preferredSize.height, collapsed + ToolbarPanel.optionRowHeight)
+        XCTAssertEqual(tb.style.thickness, .thick, "回显选中那条的粗细")
+
+        // 取消选中：颜色的禁用状态要一起复位，否则下次选中非马赛克标注会没有色板
+        tb.hasSelectedAnnotation = false
+        XCTAssertEqual(tb.preferredSize.height, collapsed)
+        tb.selectTool(.rect)
+        tb.frame = CGRect(origin: .zero, size: tb.preferredSize)
+        tb.layoutSubtreeIfNeeded()
+        XCTAssertFalse(tb.subviews.contains { !$0.isHidden && $0.frame.height == ToolbarPanel.optionRowHeight && $0.subviews.allSatisfy { $0.isHidden } },
+                       "色板不该还留在禁用状态")
     }
 }
 

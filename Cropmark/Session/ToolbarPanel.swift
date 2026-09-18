@@ -111,11 +111,30 @@ final class ToolbarPanel: NSView {
 
     var canUndo: Bool = false { didSet { undoButton.isEnabled = canUndo } }
 
-    /// 当前需要的整体尺寸。选中任何工具都展开选项行（马赛克只有粗细），高度必须与 updateVisibility 一致，
-    /// 否则选项行会悬在面板之外、点不到。
+    /// 有标注被选中：即使没选工具也要展开选项行，颜色/粗细直接作用在那条标注上
+    var hasSelectedAnnotation = false {
+        didSet {
+            if !hasSelectedAnnotation { colorsDisabled = false }
+            updateVisibility()
+        }
+    }
+    /// 选中的是马赛克：它没有颜色可言
+    private var colorsDisabled = false
+    private var optionRowVisible: Bool { selectedTool != nil || hasSelectedAnnotation }
+
+    /// 回显某条标注的样式。不触发 onStyleChange，否则会绕回去自己改自己。
+    func showStyle(_ s: Style, colorsEnabled: Bool) {
+        style = s
+        colorsDisabled = !colorsEnabled
+        refreshOptionSelection()
+        updateVisibility()
+    }
+
+    /// 当前需要的整体尺寸。选中工具或选中标注都展开选项行（马赛克只有粗细），
+    /// 高度必须与 updateVisibility 一致，否则选项行会悬在面板之外、点不到。
     var preferredSize: CGSize {
         let w = mainRow.fittingSize.width
-        let h = Self.rowHeight + (selectedTool == nil ? 0 : Self.optionRowHeight)
+        let h = Self.rowHeight + (optionRowVisible ? Self.optionRowHeight : 0)
         return CGSize(width: w, height: h)
     }
 
@@ -138,11 +157,11 @@ final class ToolbarPanel: NSView {
     }
 
     private func updateVisibility() {
-        optionRow.isHidden = (selectedTool == nil)
+        optionRow.isHidden = !optionRowVisible
         // 马赛克只关心粗细，颜色和分隔线一起藏起来
-        let mosaic = (selectedTool == .mosaic)
-        optionSeparator.isHidden = mosaic
-        for b in colorButtons { b.isHidden = mosaic }
+        let noColors = colorsDisabled || selectedTool == .mosaic
+        optionSeparator.isHidden = noColors
+        for b in colorButtons { b.isHidden = noColors }
         invalidateIntrinsicContentSize()
     }
 

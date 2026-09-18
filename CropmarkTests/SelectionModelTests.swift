@@ -104,6 +104,14 @@ final class SelectionModelTests: XCTestCase {
         XCTAssertNil(m.rect)
     }
 
+    func testTinySelectionCanStillBeMoved() {
+        // 20×20 的选区上，把手命中半径收缩到约 6.7，中心留得出空档，
+        // 否则四个角的命中区会把内部铺满，小选区就只能拉伸、永远拖不动
+        var m = selected(CGRect(x: 100, y: 100, width: 20, height: 20))
+        m.mouseDown(at: CGPoint(x: 110, y: 110))
+        XCTAssertEqual(m.phase, .moving(grabOffset: CGPoint(x: 10, y: 10)))
+    }
+
     func testHandleHitTolerance() {
         let r = CGRect(x: 100, y: 100, width: 200, height: 100)
         XCTAssertEqual(SelectionModel.handle(at: CGPoint(x: 100, y: 100), of: r), .topLeft)
@@ -132,5 +140,77 @@ final class ToolbarPlacementTests: XCTestCase {
     func testClampedToLeftEdge() {
         let f = ToolbarPlacement.frame(selection: CGRect(x: 0, y: 0, width: 100, height: 100), size: size, bounds: bounds)
         XCTAssertEqual(f.minX, 0)
+    }
+}
+
+
+final class HandleLayoutTests: XCTestCase {
+    func testNearestHandleWinsOnOverlap() {
+        // 20×20 的矩形上，右中点和右下角的命中区必然重叠。
+        // 按 allCases 顺序取会先撞上 .right，用户点了右下角却只能改宽不能改高。
+        let r = CGRect(x: 100, y: 100, width: 20, height: 20)
+        XCTAssertEqual(HandleLayout.handle(at: CGPoint(x: 120, y: 120), of: r), .bottomRight)
+        XCTAssertEqual(HandleLayout.handle(at: CGPoint(x: 100, y: 120), of: r), .bottomLeft)
+    }
+
+    func testEdgeHandlesDroppedOnShortSides() {
+        XCTAssertEqual(HandleLayout.handles(of: CGRect(x: 0, y: 0, width: 200, height: 100)).count, 8)
+        // 高度 20 撑不开左右中点：它俩会被上下两个角吃掉
+        let flat = HandleLayout.handles(of: CGRect(x: 0, y: 0, width: 200, height: 20))
+        XCTAssertEqual(flat.count, 6)
+        XCTAssertFalse(flat.contains(.left) || flat.contains(.right))
+        XCTAssertTrue(flat.contains(.top) && flat.contains(.bottom))
+        XCTAssertEqual(HandleLayout.handles(of: CGRect(x: 0, y: 0, width: 20, height: 20)).count, 4)
+    }
+
+    func testHitRadiusShrinksWithSize() {
+        XCTAssertEqual(HandleLayout.hitRadius(of: CGRect(x: 0, y: 0, width: 200, height: 100)), 10)
+        XCTAssertEqual(HandleLayout.hitRadius(of: CGRect(x: 0, y: 0, width: 20, height: 20)), 20.0 / 3, accuracy: 0.001)
+        XCTAssertEqual(HandleLayout.hitRadius(of: CGRect(x: 0, y: 0, width: 6, height: 6)), 3)
+    }
+
+    func testOppositeMatchesTheFarSide() {
+        let r = CGRect(x: 100, y: 100, width: 200, height: 100)
+        XCTAssertEqual(HandleLayout.opposite(.topLeft, in: r), CGPoint(x: 300, y: 200))
+        XCTAssertEqual(HandleLayout.opposite(.bottomRight, in: r), CGPoint(x: 100, y: 100))
+        XCTAssertEqual(HandleLayout.opposite(.top, in: r), CGPoint(x: 100, y: 200))
+        XCTAssertEqual(HandleLayout.opposite(.left, in: r), CGPoint(x: 300, y: 100))
+    }
+
+    func testLiveHandleFlipsAcrossTheOpposite() {
+        let r = CGRect(x: 100, y: 100, width: 200, height: 100)
+        let o = HandleLayout.opposite(.bottomRight, in: r)
+        XCTAssertEqual(HandleLayout.live(.bottomRight, in: r, opposite: o), .bottomRight)
+        // 拖过左上角之后，手里抓的其实是左上角那个把手了
+        let flipped = CGRect(x: 50, y: 50, width: 50, height: 50)
+        XCTAssertEqual(HandleLayout.live(.bottomRight, in: flipped, opposite: o), .topLeft)
+        // 边中点只翻它自己那一维
+        let top = HandleLayout.opposite(.top, in: r)
+        XCTAssertEqual(HandleLayout.live(.top, in: r, opposite: top), .top)
+        XCTAssertEqual(HandleLayout.live(.top, in: CGRect(x: 100, y: 200, width: 200, height: 50), opposite: top), .bottom)
+    }
+
+    func testResizeKeepsMinSideWithoutMovingTheAnchor() {
+        let r = CGRect(x: 100, y: 100, width: 200, height: 100)
+        // 右下角拖回固定点：撑成 4×4，左上角纹丝不动
+        let o1 = HandleLayout.opposite(.bottomRight, in: r)
+        XCTAssertEqual(HandleLayout.resized(r, handle: .bottomRight, to: CGPoint(x: 100, y: 100), opposite: o1, minSide: 4),
+                       CGRect(x: 100, y: 100, width: 4, height: 4))
+        // 左上角拖回固定点：往左上撑，右下角不动
+        let o2 = HandleLayout.opposite(.topLeft, in: r)
+        XCTAssertEqual(HandleLayout.resized(r, handle: .topLeft, to: CGPoint(x: 300, y: 200), opposite: o2, minSide: 4),
+                       CGRect(x: 296, y: 196, width: 4, height: 4))
+        // 上边中点只该管高度，宽度原样保留
+        let o3 = HandleLayout.opposite(.top, in: r)
+        XCTAssertEqual(HandleLayout.resized(r, handle: .top, to: CGPoint(x: 150, y: 200), opposite: o3, minSide: 4),
+                       CGRect(x: 100, y: 196, width: 200, height: 4))
+    }
+
+    func testResizeWithoutMinSideStillCollapses() {
+        // 选区走的是这条：拖到零尺寸就该塌掉，由 mouseUp 判成"取消选区"
+        let r = CGRect(x: 100, y: 100, width: 200, height: 100)
+        let o = HandleLayout.opposite(.bottomRight, in: r)
+        XCTAssertEqual(HandleLayout.resized(r, handle: .bottomRight, to: CGPoint(x: 100, y: 100), opposite: o),
+                       CGRect(x: 100, y: 100, width: 0, height: 0))
     }
 }

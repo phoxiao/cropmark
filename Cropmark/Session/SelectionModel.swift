@@ -1,10 +1,5 @@
 import CoreGraphics
 
-/// 选区的 8 个把手。
-enum Handle: CaseIterable {
-    case topLeft, top, topRight, right, bottomRight, bottom, bottomLeft, left
-}
-
 /// 选区状态机。坐标系：所在屏幕的"视图坐标"，原点在屏幕左上角、y 向下、单位点。
 /// 不碰 AppKit，纯逻辑，方便单元测试。
 struct SelectionModel {
@@ -16,8 +11,6 @@ struct SelectionModel {
         case moving(grabOffset: CGPoint)
     }
 
-    static let handleSize: CGFloat = 8
-    static let handleHitTolerance: CGFloat = 6
     /// 拖动距离小于该值视为"单击"，用于点选悬停窗口
     static let clickThreshold: CGFloat = 3
 
@@ -38,6 +31,11 @@ struct SelectionModel {
 
     var isSelected: Bool { phase == .selected }
     var hasSelection: Bool { rect != nil }
+    /// 拉伸中当前实际对应的把手：拖过对边后手里的把手已经变成镜像，光标要跟着翻
+    var liveHandle: Handle? {
+        guard case .resizing(let h, let o) = phase, let r = rect else { return nil }
+        return HandleLayout.live(h, in: r, opposite: o)
+    }
 
     // MARK: 事件
 
@@ -63,13 +61,8 @@ struct SelectionModel {
             rect = Self.normalized(anchor, p)
         case .resizing(let h, let opposite):
             guard let r = rect else { return }
-            var q = p
-            switch h {
-            case .top, .bottom: q.x = r.maxX      // 只改高度
-            case .left, .right: q.y = r.maxY      // 只改宽度
-            default: break
-            }
-            rect = Self.normalized(opposite, q)
+            // minSide 用默认的 0：选区被拖到零尺寸就该销毁，由 mouseUp 收尾
+            rect = HandleLayout.resized(r, handle: h, to: p, opposite: opposite)
         case .moving(let offset):
             guard let r = rect else { return }
             var origin = CGPoint(x: p.x - offset.x, y: p.y - offset.y)
@@ -125,44 +118,8 @@ struct SelectionModel {
         return CGRect(x: x0, y: y0, width: x1 - x0, height: y1 - y0)
     }
 
-    static func handleCenter(_ h: Handle, of r: CGRect) -> CGPoint {
-        switch h {
-        case .topLeft: return CGPoint(x: r.minX, y: r.minY)
-        case .top: return CGPoint(x: r.midX, y: r.minY)
-        case .topRight: return CGPoint(x: r.maxX, y: r.minY)
-        case .right: return CGPoint(x: r.maxX, y: r.midY)
-        case .bottomRight: return CGPoint(x: r.maxX, y: r.maxY)
-        case .bottom: return CGPoint(x: r.midX, y: r.maxY)
-        case .bottomLeft: return CGPoint(x: r.minX, y: r.maxY)
-        case .left: return CGPoint(x: r.minX, y: r.midY)
-        }
-    }
-
-    static func handleRects(of r: CGRect) -> [(Handle, CGRect)] {
-        Handle.allCases.map { h in
-            let c = handleCenter(h, of: r)
-            return (h, CGRect(x: c.x - handleSize / 2, y: c.y - handleSize / 2, width: handleSize, height: handleSize))
-        }
-    }
-
-    static func handle(at p: CGPoint, of r: CGRect) -> Handle? {
-        for (h, hr) in handleRects(of: r) where hr.insetBy(dx: -handleHitTolerance, dy: -handleHitTolerance).contains(p) {
-            return h
-        }
-        return nil
-    }
-
-    /// 拉伸时固定不动的那个点。边中点的把手把另一维固定在原值，由 anchoredDrag 处理。
-    static func oppositeCorner(of h: Handle, in r: CGRect) -> CGPoint {
-        switch h {
-        case .topLeft: return CGPoint(x: r.maxX, y: r.maxY)
-        case .top: return CGPoint(x: r.minX, y: r.maxY)
-        case .topRight: return CGPoint(x: r.minX, y: r.maxY)
-        case .right: return CGPoint(x: r.minX, y: r.minY)
-        case .bottomRight: return CGPoint(x: r.minX, y: r.minY)
-        case .bottom: return CGPoint(x: r.minX, y: r.minY)
-        case .bottomLeft: return CGPoint(x: r.maxX, y: r.minY)
-        case .left: return CGPoint(x: r.maxX, y: r.minY)
-        }
-    }
+    // 把手几何在 HandleLayout 里，选区和标注共用。这里只留门面。
+    static func handleRects(of r: CGRect) -> [(Handle, CGRect)] { HandleLayout.rects(of: r) }
+    static func handle(at p: CGPoint, of r: CGRect) -> Handle? { HandleLayout.handle(at: p, of: r) }
+    static func oppositeCorner(of h: Handle, in r: CGRect) -> CGPoint { HandleLayout.opposite(h, in: r) }
 }

@@ -14,9 +14,15 @@ final class OverlayView: NSView {
 
     private var tool: ToolKind?
     private var style = Style(color: Palette.colors[0], thickness: .medium)
-    private var inProgress: Annotation?
+    private var inProgress: Annotation.Shape?
     private var drawAnchor: CGPoint?
+    /// 按下时脚底下踩着哪条标注。松手时若画出来的东西太小，说明这一下其实是点选，把选中还给它
+    private var downHit: Annotation.ID?
     private var textEditor: TextEditorOverlay?
+    /// 正在被重新编辑的那条文字：渲染时跳过它，免得和输入框里的字叠成重影
+    private var editingTextID: Annotation.ID?
+    /// 标注的选中与拖拽。画完自动选中，之后点它的边线可重新选中
+    private var editor: AnnotationEditor
     private var bystander = false
     private var pixelCache: [Thickness: CGImage] = [:]
     private lazy var renderer = AnnotationRenderer(screenSize: bounds.size) { [weak self] t in self?.pixelated(t) }
@@ -32,6 +38,7 @@ final class OverlayView: NSView {
         let b = CGRect(origin: .zero, size: snapshot.frame.size)
         self.selection = SelectionModel(bounds: b, scale: snapshot.scale)
         self.hoverResolver = session.elementDetection.resolver(for: snapshot)
+        self.editor = AnnotationEditor(geometry: .appKit(), scale: snapshot.scale)
         super.init(frame: b)
         wantsLayer = true
         addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
@@ -46,10 +53,7 @@ final class OverlayView: NSView {
             self.needsDisplay = true
             self.refreshCursor()
         }
-        toolbar.onStyleChange = { [weak self] s in
-            self?.style = s
-            self?.textEditor?.apply(style: s)
-        }
+        toolbar.onStyleChange = { [weak self] s in self?.applyStyle(s) }
         toolbar.onAction = { [weak self] a in
             guard let self else { return }
             switch a {
@@ -73,6 +77,10 @@ final class OverlayView: NSView {
     var hoverRectForTesting: CGRect? { selection.hoverRect }
     func selectToolForTesting(_ t: ToolKind?) { toolbar.selectTool(t) }
     func cursorForTesting(at p: CGPoint) -> NSCursor { cursor(at: p) }
+    var selectedAnnotationForTesting: Annotation? { selectedAnnotation }
+    var canRedoForTesting: Bool { store.canRedo }
+    func applyStyleForTesting(_ s: Style) { applyStyle(s) }
+    var visibleAnnotationCountForTesting: Int { visibleItems.count }
 
     // MARK: 旁观（其他屏幕已有选区）
 
@@ -140,21 +148,60 @@ final class OverlayView: NSView {
         let p = convert(event.locationInWindow, from: nil)
         if textEditor != nil { commitTextEditor(); return }
 
-        if let tool, selection.isSelected, let r = selection.rect, r.contains(p) {
+        guard selection.isSelected, let r = selection.rect else { beginSelectionGesture(at: p); return }
+        editor.limit = r
+
+        // ① 选中标注的把手最优先。工具还亮着也要能拉——"画歪了立刻拉一下"是同一个动作的延续，
+        //    被它吃掉的只是几个画出来的小圆点，用户看得见
+        if let a = selectedAnnotation, let h = editor.geometry.handle(at: p, of: a) {
+            store.beginDrag()
+            editor.beginResizing(a, handle: h)
+            return
+        }
+        // ② 工具亮着就在选区内画新的：亮着的工具是一个显式的模式声明。
+        //    按住 ⌘ 让路，给"就是想改旧框"留个不用先关工具的出口
+        if let tool, r.contains(p), !event.modifierFlags.contains(.command) {
+            // 先记下脚底下踩着谁，但别动选中态：这一下到底算"画新的"还是算"点选"，
+            // 要等松手时看画出来的东西够不够大才知道
+            downHit = editor.geometry.topmost(at: p, in: store.items)?.id
             beginDrawing(tool, at: p, in: r)
             return
         }
-        if event.clickCount == 2, selection.isSelected, let r = selection.rect, r.contains(p) {
-            finish(save: false)
+        // ③ 无工具时选区把手优先于标注本体。标注整块可点之后，一个盖住选区角的大框
+        //    会让选区彻底拉不动；把手是画出来的白点，用户看得见就必须点得中
+        if tool == nil, SelectionModel.handle(at: p, of: r) != nil {
+            beginSelectionGesture(at: p)
             return
         }
+        // ④ 点中某条标注：选中它并立刻开始拖动，一次按下完成两件事
+        if r.contains(p), let a = editor.geometry.topmost(at: p, in: store.items) {
+            if event.clickCount == 2 {
+                // 双击文字进重编辑；双击别的标注仍然完成截图——标注整块可点之后会盖住
+                // 大片选区，不放行的话 README 里写的"双击完成"就等于没了
+                if case .text = a.shape { select(a.id); beginTextEditing(a) } else { finish(save: false) }
+                return
+            }
+            store.beginDrag()
+            editor.beginMoving(a, grab: p)
+            selectionDidChange()
+            NSCursor.closedHand.set()
+            needsDisplay = true
+            return
+        }
+        // ⑤ 点在空白处：取消选中，回到选区自己的手势
+        select(nil)
+        if event.clickCount == 2, r.contains(p) { finish(save: false); return }
+        beginSelectionGesture(at: p)
+    }
+
+    /// 选区自己的按下手势：新建、整体移动、拉把手。
+    private func beginSelectionGesture(at p: CGPoint) {
         let hadSelection = selection.hasSelection
         selection.mouseDown(at: p)
         if case .moving = selection.phase { NSCursor.closedHand.set() }
         if case .dragging = selection.phase {
             // 重新框选：丢弃旧标注
-            store.removeAll()
-            toolbar.canUndo = false
+            clearAnnotations()
             toolbar.isHidden = true
             if !hadSelection { session?.selectionDidBegin(on: self) }
         } else {
@@ -163,21 +210,103 @@ final class OverlayView: NSView {
         needsDisplay = true
     }
 
+    // MARK: 标注的选中与编辑
+
+    private var selectedAnnotation: Annotation? { editor.selected.flatMap { store.item(id: $0) } }
+
+    /// 选中/取消选中一条标注
+    private func select(_ id: Annotation.ID?) {
+        // 这条标注可能已经不在了（被撤销掉、被右键清掉），那就当没选中。
+        // 否则工具栏会卡在"有选中"的假状态：选项行展开着，却既没有虚线框也删不掉
+        let id = id.flatMap { store.item(id: $0) != nil ? $0 : nil }
+        guard editor.selected != id else { return }
+        editor.select(id)
+        selectionDidChange()
+        needsDisplay = true
+    }
+
+    /// 选中的标注变了：工具栏要跟着显示它的样式
+    private func selectionDidChange() {
+        toolbar.hasSelectedAnnotation = editor.selected != nil
+        if let a = selectedAnnotation {
+            style = a.style
+            toolbar.showStyle(a.style, colorsEnabled: !a.isMosaic)
+        }
+        layoutToolbar()   // 选项行的显隐会改面板高度
+    }
+
+    /// 撤销可能把选中的那条撤没了，虚线框不能还留在空白处
+    private func syncSelection() {
+        if let id = editor.selected, store.item(id: id) == nil { select(nil) }
+    }
+
+    /// 清空标注，连同选中态和正在进行的编辑。
+    /// 三个调用点必须走同一条路，漏掉就会出现"选中一条已经不存在的标注"
+    private func clearAnnotations() {
+        store.removeAll()
+        editor.select(nil)
+        editor.endDrag()
+        selectionDidChange()
+        refreshToolbarState()
+    }
+
+    /// 工具栏改了颜色/粗细：既是下一条要画的样式，也直接作用在当前选中的那条上。
+    private func applyStyle(_ s: Style) {
+        style = s
+        textEditor?.apply(style: s)        // 正在输入的文字
+        guard let id = editor.selected else { return }
+        store.update(id: id) { $0.style = s }   // 占一条撤销
+        refreshToolbarState()
+        needsDisplay = true
+    }
+
+    private func continueEditing(to p: CGPoint, shift: Bool) {
+        guard let id = editor.selected, let a = editor.dragged(to: p, shift: shift) else { return }
+        store.replace(id: id, with: a)
+    }
+
+    private func deleteSelected() {
+        guard let id = editor.selected else { return }
+        store.remove(id: id)
+        select(nil)
+        refreshToolbarState()
+        needsDisplay = true
+    }
+
     override func mouseDragged(with event: NSEvent) {
         guard !bystander else { return }
         let p = convert(event.locationInWindow, from: nil)
-        if inProgress != nil || drawAnchor != nil {
-            continueDrawing(to: p, shift: event.modifierFlags.contains(.shift))
+        let shift = event.modifierFlags.contains(.shift)
+        if editor.isDragging {
+            continueEditing(to: p, shift: shift)
+        } else if inProgress != nil || drawAnchor != nil {
+            select(nil)        // 真的开始画了，旧的选中让位（guard 守着，只有第一帧真执行）
+            continueDrawing(to: p, shift: shift)
         } else {
             selection.mouseDragged(to: p)
         }
+        dragCursor().set()
         needsDisplay = true
+    }
+
+    /// 拖拽中的光标。拉伸拖过对边后把手会变成镜像，光标要跟着翻，否则方向是反的。
+    private func dragCursor() -> NSCursor {
+        if let a = selectedAnnotation, let h = editor.liveHandle(of: a) { return Self.cursor(for: h) }
+        if editor.isDragging { return .closedHand }
+        if let h = selection.liveHandle { return Self.resizeCursor(for: h) }
+        if case .moving = selection.phase { return .closedHand }
+        return NSCursor.current
     }
 
     override func mouseUp(with event: NSEvent) {
         guard !bystander else { return }
         let p = convert(event.locationInWindow, from: nil)
-        if inProgress != nil || drawAnchor != nil {
+        if editor.isDragging {
+            continueEditing(to: p, shift: event.modifierFlags.contains(.shift))
+            editor.endDrag()
+            store.endDrag()      // 整段拖动合成一条撤销；按下没动就松开不记
+            refreshToolbarState()
+        } else if inProgress != nil || drawAnchor != nil {
             endDrawing(at: p, shift: event.modifierFlags.contains(.shift))
         } else {
             let hadSelection = selection.hasSelection
@@ -214,8 +343,7 @@ final class OverlayView: NSView {
     func resetSelection() {
         commitTextEditor()
         selection.clearSelection()
-        store.removeAll()
-        toolbar.canUndo = false
+        clearAnnotations()
         toolbar.deselectTool()
         tool = nil
         toolbar.isHidden = true
@@ -228,9 +356,10 @@ final class OverlayView: NSView {
         switch event.keyCode {
         case 53: session?.cancel()                                    // Esc
         case 36, 76: if selection.isSelected { finish(save: false) } // Return / Enter
+        case 51, 117: deleteSelected()                                // Delete / Fn+Delete
         default:
             let ch = event.charactersIgnoringModifiers?.lowercased()
-            if cmd, ch == "z" { undo() }
+            if cmd, ch == "z" { event.modifierFlags.contains(.shift) ? redo() : undo() }
             else if cmd, ch == "s", selection.isSelected { finish(save: true) }
             // 其他按键直接吞掉：交给 super 会响系统提示音
         }
@@ -246,9 +375,20 @@ final class OverlayView: NSView {
 
     private func cursor(at p: CGPoint) -> NSCursor {
         guard !bystander, selection.isSelected, let r = selection.rect else { return .crosshair }
-        if let tool { return tool == .text && r.contains(p) ? .iBeam : .crosshair }
-        if let h = SelectionModel.handle(at: p, of: r) { return Self.resizeCursor(for: h) }
-        return r.contains(p) ? .openHand : .crosshair
+        // 顺序要和 mouseDown 一致，否则光标会承诺一件点下去不会发生的事
+        if let a = selectedAnnotation, let h = editor.geometry.handle(at: p, of: a) { return Self.cursor(for: h) }
+        if tool == nil, let h = SelectionModel.handle(at: p, of: r) { return Self.resizeCursor(for: h) }
+        guard r.contains(p) else { return .crosshair }
+        if let tool { return tool == .text ? .iBeam : .crosshair }
+        // 选区内无工具：压着标注是"抓标注"，空白是"挪选区"，都是手形，不用分
+        return .openHand
+    }
+
+    private static func cursor(for h: AnnotationHandle) -> NSCursor {
+        switch h {
+        case .box(let b): return resizeCursor(for: b)
+        case .start, .end: return .crosshair   // 在精确定位一个端点
+        }
     }
 
     private static func resizeCursor(for h: Handle) -> NSCursor {
@@ -269,8 +409,46 @@ final class OverlayView: NSView {
         switch h {
         case .left, .right: return .resizeLeftRight
         case .top, .bottom: return .resizeUpDown
-        default: return .crosshair
+        case .topLeft, .bottomRight: return nwseCursor
+        case .topRight, .bottomLeft: return neswCursor
         }
+    }
+
+    /// macOS 15 之前没有公开的对角调整光标，系统 API 只给了上下左右四个方向。
+    /// 小标注上边中点把手会被砍掉、只剩四个角，没有方向提示就很难用，所以自绘一个。
+    /// 不用私有的 _windowResize… 系列：为一个过渡期的兼容问题引入未公开 API 不划算。
+    static let nwseCursor = makeDiagonalCursor(rotation: -.pi / 4)
+    static let neswCursor = makeDiagonalCursor(rotation: .pi / 4)
+
+    /// 白描边的黑色双向箭头，转到指定角度。描边是为了在深色内容上也看得清。
+    static func makeDiagonalCursor(rotation: CGFloat) -> NSCursor {
+        let side: CGFloat = 24
+        let img = NSImage(size: NSSize(width: side, height: side), flipped: false) { _ in
+            guard let ctx = NSGraphicsContext.current?.cgContext else { return false }
+            ctx.translateBy(x: side / 2, y: side / 2)
+            ctx.rotate(by: rotation)
+            let path = CGMutablePath()
+            path.move(to: CGPoint(x: -5, y: 0))
+            path.addLine(to: CGPoint(x: 5, y: 0))
+            for dir in [CGFloat(-1), 1] {          // 两端各一个三角头
+                path.move(to: CGPoint(x: dir * 9, y: 0))
+                path.addLine(to: CGPoint(x: dir * 4, y: -4))
+                path.addLine(to: CGPoint(x: dir * 4, y: 4))
+                path.closeSubpath()
+            }
+            ctx.setLineJoin(.round)
+            ctx.setLineWidth(3)
+            ctx.setStrokeColor(NSColor.white.cgColor)
+            ctx.addPath(path)
+            ctx.strokePath()
+            ctx.setFillColor(NSColor.black.cgColor)
+            ctx.setStrokeColor(NSColor.black.cgColor)
+            ctx.setLineWidth(1.5)
+            ctx.addPath(path)
+            ctx.drawPath(using: .fillStroke)
+            return true
+        }
+        return NSCursor(image: img, hotSpot: NSPoint(x: side / 2, y: side / 2))
     }
 
     // MARK: 绘制标注
@@ -280,65 +458,125 @@ final class OverlayView: NSView {
         case .rect, .ellipse, .arrow:
             drawAnchor = p
         case .pen:
-            inProgress = .pen([p], style)
+            inProgress = .pen([p])
         case .mosaic:
-            inProgress = .mosaic([p], style.thickness)
+            inProgress = .mosaic([p])
         case .text:
-            let editor = TextEditorOverlay.make(at: p, style: style, maxWidth: r.maxX - p.x)
-            editor.onCommit = { [weak self, weak editor] s in
-                guard let self, let editor else { return }
-                self.store.append(.text(s, origin: editor.frame.origin, maxWidth: editor.maxWidth, editor.annotationStyle))
-                self.toolbar.canUndo = true
+            let field = TextEditorOverlay.make(at: p, style: style, maxWidth: r.maxX - p.x)
+            field.onCommit = { [weak self, weak field] s in
+                guard let self, let field else { return }
+                guard !s.isEmpty else { self.removeTextEditor(); return }   // 新建时空内容就是不留东西
+                let a = Annotation(shape: .text(s, origin: field.frame.origin, maxWidth: field.maxWidth),
+                                   style: field.annotationStyle)
+                self.store.append(a)
+                self.select(a.id)
+                self.refreshToolbarState()
                 self.removeTextEditor()
             }
-            editor.onCancel = { [weak self] in self?.removeTextEditor() }
-            addSubview(editor)
-            textEditor = editor
-            window?.makeFirstResponder(editor)
+            field.onCancel = { [weak self] in self?.removeTextEditor() }
+            addSubview(field)
+            textEditor = field
+            window?.makeFirstResponder(field)
         }
+    }
+
+    /// 重新编辑一条已提交的文字：原位打开输入框，内容预填。
+    private func beginTextEditing(_ a: Annotation) {
+        guard case .text(let text, let origin, let maxWidth) = a.shape else { return }
+        let field = TextEditorOverlay.make(at: origin, style: a.style, maxWidth: maxWidth, text: text)
+        editingTextID = a.id
+        field.onCommit = { [weak self, weak field] s in
+            guard let self, let field else { return }
+            if s.isEmpty {
+                self.store.remove(id: a.id)      // 重编辑时清空内容，就是要删掉这一条
+                self.select(nil)
+            } else {
+                self.store.update(id: a.id) {
+                    $0.shape = .text(s, origin: field.frame.origin, maxWidth: field.maxWidth)
+                    $0.style = field.annotationStyle
+                }
+            }
+            self.refreshToolbarState()
+            self.finishTextEditing()
+        }
+        field.onCancel = { [weak self] in self?.finishTextEditing() }   // Esc：原样保留
+        addSubview(field)
+        textEditor = field
+        window?.makeFirstResponder(field)
+        needsDisplay = true
+    }
+
+    private func finishTextEditing() {
+        editingTextID = nil
+        removeTextEditor()
     }
 
     private func continueDrawing(to p: CGPoint, shift: Bool) {
         let q = clampToSelection(p)
         if let a = drawAnchor, let tool {
             switch tool {
-            case .rect: inProgress = .rect(shift ? .square(anchor: a, drag: q) : SelectionModel.normalized(a, q), style)
-            case .ellipse: inProgress = .ellipse(shift ? .square(anchor: a, drag: q) : SelectionModel.normalized(a, q), style)
-            case .arrow: inProgress = .arrow(from: a, to: shift ? ArrowGeometry.snapped(from: a, to: q) : q, style)
+            case .rect: inProgress = .rect(shift ? .square(anchor: a, drag: q) : SelectionModel.normalized(a, q))
+            case .ellipse: inProgress = .ellipse(shift ? .square(anchor: a, drag: q) : SelectionModel.normalized(a, q))
+            case .arrow: inProgress = .arrow(from: a, to: shift ? ArrowGeometry.snapped(from: a, to: q) : q)
             default: break
             }
-        } else if case .pen(var pts, let s) = inProgress {
-            pts.append(q); inProgress = .pen(pts, s)
-        } else if case .mosaic(var pts, let t) = inProgress {
-            pts.append(q); inProgress = .mosaic(pts, t)
+        } else if case .pen(var pts) = inProgress {
+            pts.append(q); inProgress = .pen(pts)
+        } else if case .mosaic(var pts) = inProgress {
+            pts.append(q); inProgress = .mosaic(pts)
         }
     }
 
     private func endDrawing(at p: CGPoint, shift: Bool) {
         continueDrawing(to: p, shift: shift)
-        defer { inProgress = nil; drawAnchor = nil }
-        guard let a = inProgress else { return }
-        switch a {
-        case .rect(let r, _), .ellipse(let r, _):
-            guard r.width >= 2, r.height >= 2 else { return }
-        case .arrow(let f, let t, _):
-            guard hypot(t.x - f.x, t.y - f.y) >= 3 else { return }
+        defer { inProgress = nil; drawAnchor = nil; downHit = nil }
+        guard let shape = inProgress else { return }
+        // 太小就丢弃：多半根本不是在画，而是点了一下。
+        // 这时把选中还给脚底下那条标注——点在标注上就选中它，点空白才是取消选中
+        switch shape {
+        case .rect(let r), .ellipse(let r):
+            guard r.width >= 2, r.height >= 2 else { select(downHit); return }
+        case .arrow(let f, let t):
+            guard hypot(t.x - f.x, t.y - f.y) >= 3 else { select(downHit); return }
         default: break
         }
+        let a = Annotation(shape: shape, style: style)
         store.append(a)
-        toolbar.canUndo = true
+        select(a.id)              // 画完立刻选中，发现画歪了可以马上拉
+        refreshToolbarState()
     }
 
+    /// 钳进选区并吸附到像素网格。不吸附的话，画完再去拉把手会有半个像素的跳变
     private func clampToSelection(_ p: CGPoint) -> CGPoint {
         guard let r = selection.rect else { return p }
-        return CGPoint(x: min(max(p.x, r.minX), r.maxX), y: min(max(p.y, r.minY), r.maxY))
+        let q = CGPoint(x: min(max(p.x, r.minX), r.maxX), y: min(max(p.y, r.minY), r.maxY))
+        let s = snapshot.scale
+        return CGPoint(x: (q.x * s).rounded() / s, y: (q.y * s).rounded() / s)
     }
 
     private func undo() {
         commitTextEditor()
         store.undo()
-        toolbar.canUndo = store.canUndo
+        syncSelection()
+        refreshToolbarState()
         needsDisplay = true
+    }
+
+    private func redo() {
+        commitTextEditor()
+        store.redo()
+        syncSelection()
+        refreshToolbarState()
+        needsDisplay = true
+    }
+
+    /// 撤销状态只有一个真相来源：store 的撤销栈
+    private func refreshToolbarState() { toolbar.canUndo = store.canUndo }
+
+    /// 正在被重新编辑的那条先不画：输入框是透明的，不藏起来就会和框里的字叠成重影
+    private var visibleItems: [Annotation] {
+        guard let id = editingTextID else { return store.items }
+        return store.items.filter { $0.id != id }
     }
 
     private func commitTextEditor() { textEditor?.commit() }
@@ -386,8 +624,8 @@ final class OverlayView: NSView {
         if let r = selection.rect, !r.isEmpty {
             ctx.saveGState()
             ctx.clip(to: r)
-            renderer.draw(store.items, in: ctx)
-            if let a = inProgress { renderer.draw(a, in: ctx) }
+            renderer.draw(visibleItems, in: ctx)
+            if let shape = inProgress { renderer.draw(shape, style: style, in: ctx) }
             ctx.restoreGState()
         }
 
@@ -416,6 +654,38 @@ final class OverlayView: NSView {
 
         if selection.hasSelection || selection.hoverRect != nil {
             drawSizeLabel(for: hole, in: ctx)
+        }
+        if let a = selectedAnnotation, let sel = selection.rect {
+            drawSelectionChrome(for: a, within: sel, in: ctx)
+        }
+    }
+
+    /// 选中标注的装饰：外扩的虚线框 + 把手。
+    /// 把手用反色（强调色实心 + 白描边），和选区把手（白底 + 强调色描边）反过来——
+    /// 标注贴着选区边缘时两套把手会挨在一起，颜色反过来才一眼分得清哪个是哪个。
+    /// 不放进上面 clip 到选区的那段里，否则贴边标注的把手会被裁掉。
+    private func drawSelectionChrome(for a: Annotation, within sel: CGRect, in ctx: CGContext) {
+        let box = editor.geometry.bounds(of: a).insetBy(dx: -3, dy: -3)
+        guard box.intersects(sel) else { return }
+        ctx.saveGState()
+        defer { ctx.restoreGState() }
+        // 先用半透明白打底，深色浅色内容上都看得见；再叠强调色虚线，和标注自己的实线区分开
+        ctx.setStrokeColor(NSColor(white: 1, alpha: 0.85).cgColor)
+        ctx.setLineWidth(2.5)
+        ctx.stroke(box)
+        ctx.setStrokeColor(Palette.accent.cgColor)
+        ctx.setLineWidth(1)
+        ctx.setLineDash(phase: 0, lengths: [4, 3])
+        ctx.stroke(box)
+        ctx.setLineDash(phase: 0, lengths: [])
+
+        ctx.setFillColor(Palette.accent.cgColor)
+        ctx.setStrokeColor(NSColor.white.cgColor)
+        let d = HandleLayout.size - 1
+        for (_, c) in editor.geometry.handles(of: a) {
+            let hr = CGRect(x: c.x - d / 2, y: c.y - d / 2, width: d, height: d)
+            ctx.fillEllipse(in: hr)
+            ctx.strokeEllipse(in: hr)
         }
     }
 

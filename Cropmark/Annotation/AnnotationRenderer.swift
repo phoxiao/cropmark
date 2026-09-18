@@ -11,21 +11,24 @@ struct AnnotationRenderer {
         for a in annotations { draw(a, in: ctx) }
     }
 
-    func draw(_ a: Annotation, in ctx: CGContext) {
+    func draw(_ a: Annotation, in ctx: CGContext) { draw(a.shape, style: a.style, in: ctx) }
+
+    /// 单独吃 shape + style：正在画的预览还不是一条标注，不必先造个带 id 的对象。
+    func draw(_ shape: Annotation.Shape, style s: Style, in ctx: CGContext) {
         ctx.saveGState()
         defer { ctx.restoreGState() }
         ctx.setLineCap(.round)
         ctx.setLineJoin(.round)
-        switch a {
-        case .rect(let r, let s):
+        switch shape {
+        case .rect(let r):
             ctx.setStrokeColor(s.color.cgColor)
             ctx.setLineWidth(s.thickness.lineWidth)
             ctx.stroke(r.insetBy(dx: s.thickness.lineWidth / 2, dy: s.thickness.lineWidth / 2))
-        case .ellipse(let r, let s):
+        case .ellipse(let r):
             ctx.setStrokeColor(s.color.cgColor)
             ctx.setLineWidth(s.thickness.lineWidth)
             ctx.strokeEllipse(in: r.insetBy(dx: s.thickness.lineWidth / 2, dy: s.thickness.lineWidth / 2))
-        case .arrow(let from, let to, let s):
+        case .arrow(let from, let to):
             let lw = s.thickness.lineWidth
             let g = ArrowGeometry.build(from: from, to: to, lineWidth: lw)
             ctx.setStrokeColor(s.color.cgColor)
@@ -33,7 +36,7 @@ struct AnnotationRenderer {
             ctx.setLineWidth(lw)
             ctx.move(to: from); ctx.addLine(to: g.shaftEnd); ctx.strokePath()
             ctx.move(to: g.head[0]); ctx.addLine(to: g.head[1]); ctx.addLine(to: g.head[2]); ctx.closePath(); ctx.fillPath()
-        case .pen(let pts, let s):
+        case .pen(let pts):
             guard let first = pts.first else { return }
             ctx.setStrokeColor(s.color.cgColor)
             ctx.setLineWidth(s.thickness.lineWidth)
@@ -41,17 +44,17 @@ struct AnnotationRenderer {
             if pts.count == 1 { ctx.addLine(to: first) }
             for p in pts.dropFirst() { ctx.addLine(to: p) }
             ctx.strokePath()
-        case .mosaic(let pts, let t):
-            guard let first = pts.first, let img = pixelatedImage(t) else { return }
+        case .mosaic(let pts):
+            guard let first = pts.first, let img = pixelatedImage(s.thickness) else { return }
             let path = CGMutablePath()
             path.move(to: first)
             if pts.count == 1 { path.addLine(to: first) }
             for p in pts.dropFirst() { path.addLine(to: p) }
-            let brush = path.copy(strokingWithWidth: t.mosaicBrush, lineCap: .round, lineJoin: .round, miterLimit: 10)
+            let brush = path.copy(strokingWithWidth: s.thickness.mosaicBrush, lineCap: .round, lineJoin: .round, miterLimit: 10)
             ctx.addPath(brush)
             ctx.clip()
             Self.drawImage(img, in: CGRect(origin: .zero, size: screenSize), ctx: ctx)
-        case .text(let str, let origin, let maxWidth, let s):
+        case .text(let str, let origin, let maxWidth):
             let attr = Self.attributedText(str, style: s)
             let gc = NSGraphicsContext(cgContext: ctx, flipped: true)
             NSGraphicsContext.saveGraphicsState()
@@ -66,6 +69,15 @@ struct AnnotationRenderer {
         let w = max(maxWidth, 1)
         let h = attr.boundingRect(with: CGSize(width: w, height: .greatestFiniteMagnitude), options: [.usesLineFragmentOrigin]).height
         return CGRect(origin: origin, size: CGSize(width: w, height: ceil(h)))
+    }
+
+    /// 文字实际占据的矩形（折行后的紧凑宽高）。命中判定和选中框用它。
+    /// 绘制仍走 textRect（宽度恒为 maxWidth），两者分开，折行结果才不会被动到——
+    /// 拿 textRect 当命中框的话，一个 "hi" 会把右边几百点的空白也算成可点区域。
+    static func textBounds(_ attr: NSAttributedString, origin: CGPoint, maxWidth: CGFloat) -> CGRect {
+        let w = max(maxWidth, 1)
+        let b = attr.boundingRect(with: CGSize(width: w, height: .greatestFiniteMagnitude), options: [.usesLineFragmentOrigin])
+        return CGRect(origin: origin, size: CGSize(width: ceil(min(b.width, w)), height: ceil(b.height)))
     }
 
     static func attributedText(_ s: String, style: Style) -> NSAttributedString {
@@ -83,5 +95,16 @@ struct AnnotationRenderer {
         ctx.interpolationQuality = .high
         ctx.draw(image, in: rect)
         ctx.restoreGState()
+    }
+}
+
+
+extension AnnotationGeometry {
+    /// 真正走 TextKit 的那一份。几何逻辑本身不依赖 AppKit，测试里换成 stub 即可。
+    static func appKit() -> AnnotationGeometry {
+        AnnotationGeometry { text, style, maxWidth in
+            AnnotationRenderer.textBounds(AnnotationRenderer.attributedText(text, style: style),
+                                          origin: .zero, maxWidth: maxWidth).size
+        }
     }
 }
