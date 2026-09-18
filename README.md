@@ -10,8 +10,8 @@ A lightweight screenshot tool for macOS. Press `⌃⌘A`, drag a region, annotat
 - Freezes every screen the instant you press it; hover to auto-detect a window and click to take it — hold `⌘` to narrow it down to the dialog, panel or card *inside* it
 - Drag to select a region with a live pixel-size readout; release to get 8 resize handles, drag inside to move
 - Annotation tools: rectangle / ellipse / arrow / pen / mosaic / text, 6 colors and 3 weights
-- Everything you draw stays editable: it is selected the moment you finish drawing, and clicking it anywhere selects it again — even with a tool still armed, since a click selects and only a drag draws something new. Drag the handles to resize, drag the shape to move it, `Delete` to remove it, double-click a text label to rewrite it, and change its color or weight from the toolbar. `⌘Z` / `⌘⇧Z` undo and redo every edit, not just the last shape you drew
   - Hold Shift for a perfect square or circle; arrows snap to 45°
+- Everything you draw stays editable: it is selected the moment you finish drawing, and clicking it anywhere selects it again — even with a tool still armed, since a click selects and only a drag draws something new. Drag the handles to resize, drag the shape to move it, `Delete` to remove it, double-click a text label to rewrite it, and change its color or weight from the toolbar. `⌘Z` / `⌘⇧Z` undo and redo every edit, not just the last shape you drew
 - `Enter` / double-click / "Done" → copy to clipboard. The clipboard carries both the image (PNG + TIFF) and a PNG file, so you can paste into chats and documents as an image, and into Finder, Slack, terminals, or Claude Code as a file
 - `⌘S` / "Save" → the system save panel, defaulting to the Desktop, named `Screenshot 2026-09-07 14.30.12.png`
 - `Esc` / right-click → cancel
