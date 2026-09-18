@@ -446,11 +446,22 @@ final class HoverResolverTests: XCTestCase {
     private let dialog = CGRect(x: 100, y: 100, width: 120, height: 80)
     private let insideDialog = CGPoint(x: 150, y: 140)
     private let elsewhere = CGPoint(x: 320, y: 40)
+    /// 专做屏障用的另一扇窗：和 window 不相干，保证不命中缓存、必定走一趟后台
+    private let otherWindow = CGRect(x: 1000, y: 0, width: 200, height: 200)
+    private let insideOtherWindow = CGPoint(x: 1100, y: 100)
 
-    private func settle() {
-        // 后台队列和主队列各跑一轮，让在飞的回调落地
-        let done = expectation(description: "settle")
-        DispatchQueue.global().async { DispatchQueue.main.async { done.fulfill() } }
+    /// 等 resolver 把手上的活干完，再断言"什么都没上屏"。
+    ///
+    /// 不能靠「后台队列和主队列各转一圈」来等：一条被合并的请求要跨两趟主队列
+    /// （在飞的结果回主线程 → 在那儿重新派发 → 新结果再回主线程），转一圈就断言，
+    /// 撞上的是回调还没来的空数组。
+    ///
+    /// 屏障的办法是塞一条必定要走后台的查询（换一扇不相干的窗，保证不命中缓存）：
+    /// 它要么被挂成 pending 排在在飞那条后面，要么是在飞那条已经落地了才发出去——
+    /// 两种次序下它的结果一回来，前面那条都已经处理完了。
+    private func drain(_ resolver: HoverResolver) {
+        let done = expectation(description: "drain")
+        resolver.refine(window: otherWindow, at: insideOtherWindow) { _ in done.fulfill() }
         wait(for: [done], timeout: 2)
     }
 
@@ -463,8 +474,9 @@ final class HoverResolverTests: XCTestCase {
         var delivered: [CGRect] = []
 
         // ① 停在对话框上，让缓存装上 (window, dialog)
-        resolver.refine(window: window, at: insideDialog) { delivered.append($0) }
-        settle()
+        let primed = expectation(description: "cache primed")
+        resolver.refine(window: window, at: insideDialog) { delivered.append($0); primed.fulfill() }
+        wait(for: [primed], timeout: 2)
         XCTAssertEqual(delivered, [dialog])
 
         // ② 移到对话框外，这次查询卡住不返回
@@ -476,7 +488,7 @@ final class HoverResolverTests: XCTestCase {
 
         // ④ 放行②的结果。它对应的位置早过期了，不该上屏
         locator.open()
-        settle()
+        drain(resolver)
         XCTAssertEqual(delivered, [dialog, dialog], "过期结果把高亮改回了整窗：\(delivered)")
     }
 
@@ -490,9 +502,12 @@ final class HoverResolverTests: XCTestCase {
         locator.gateCall = 1
         resolver.refine(window: window, at: elsewhere) { delivered.append($0) }
         for _ in 0..<5 { resolver.refine(window: window, at: elsewhere) { delivered.append($0) } }
-        resolver.refine(window: window, at: insideDialog) { delivered.append($0) }
+        // 只等最新那条的结果落地：它要跨两趟主队列（在飞的结果回主线程 → 在那儿重新派发 →
+        // 新结果再回主线程），按固定圈数空转的等法会在第二趟之前就断言，抓到空数组。
+        let newest = expectation(description: "newest result delivered")
+        resolver.refine(window: window, at: insideDialog) { delivered.append($0); newest.fulfill() }
         locator.open()
-        settle()
+        wait(for: [newest], timeout: 2)
 
         XCTAssertEqual(locator.callCount, 2, "中间那几个请求不该各发一次查询")
         XCTAssertEqual(delivered, [dialog], "只有最新那条请求的结果该上屏")
@@ -509,7 +524,7 @@ final class HoverResolverTests: XCTestCase {
         resolver.refine(window: window, at: insideDialog) { delivered.append($0) }
         resolver.invalidate()
         locator.open()
-        settle()
+        drain(resolver)
         XCTAssertTrue(delivered.isEmpty, "撤销后仍然把结果送上来了：\(delivered)")
     }
 }
