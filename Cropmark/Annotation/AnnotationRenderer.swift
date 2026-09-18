@@ -64,11 +64,11 @@ struct AnnotationRenderer {
         }
     }
 
-    /// 文字在 maxWidth 内折行后占据的矩形。宽度固定为 maxWidth，保证绘制时的折行与测量一致。
+    /// 绘制用：宽度固定为 maxWidth，折行位置才和测量时一致。
     static func textRect(_ attr: NSAttributedString, origin: CGPoint, maxWidth: CGFloat) -> CGRect {
-        let w = max(maxWidth, 1)
-        let h = attr.boundingRect(with: CGSize(width: w, height: .greatestFiniteMagnitude), options: [.usesLineFragmentOrigin]).height
-        return CGRect(origin: origin, size: CGSize(width: w, height: ceil(h)))
+        var r = textBounds(attr, origin: origin, maxWidth: maxWidth)
+        r.size.width = max(maxWidth, 1)
+        return r
     }
 
     /// 文字实际占据的矩形（折行后的紧凑宽高）。命中判定和选中框用它。
@@ -102,9 +102,29 @@ struct AnnotationRenderer {
 extension AnnotationGeometry {
     /// 真正走 TextKit 的那一份。几何逻辑本身不依赖 AppKit，测试里换成 stub 即可。
     static func appKit() -> AnnotationGeometry {
-        AnnotationGeometry { text, style, maxWidth in
-            AnnotationRenderer.textBounds(AnnotationRenderer.attributedText(text, style: style),
-                                          origin: .zero, maxWidth: maxWidth).size
-        }
+        let cache = TextSizeCache()
+        return AnnotationGeometry { cache.size($0, $1, $2) }
+    }
+}
+
+/// 文字折行尺寸的记忆表。拖一条文字标注时，同一串字每帧要被量好几遍
+/// （拖拽几何一次、选中框一次、渲染一次），而键在整次拖动里纹丝不动。
+/// 颜色不影响尺寸，所以不进键——改个颜色不该让缓存失效。
+/// 生命周期跟着一次截图会话，会话结束一起释放。
+private final class TextSizeCache {
+    private struct Key: Hashable {
+        let text: String
+        let fontSize: CGFloat
+        let maxWidth: CGFloat
+    }
+    private var sizes: [Key: CGSize] = [:]
+
+    func size(_ text: String, _ style: Style, _ maxWidth: CGFloat) -> CGSize {
+        let key = Key(text: text, fontSize: style.thickness.fontSize, maxWidth: maxWidth)
+        if let known = sizes[key] { return known }
+        let measured = AnnotationRenderer.textBounds(AnnotationRenderer.attributedText(text, style: style),
+                                                    origin: .zero, maxWidth: maxWidth).size
+        sizes[key] = measured
+        return measured
     }
 }

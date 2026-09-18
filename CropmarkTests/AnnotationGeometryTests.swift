@@ -203,8 +203,7 @@ final class AnnotationGeometryTests: XCTestCase {
     func testResizeFlipsAcrossTheOppositeCorner() {
         let a = make(.rect(CGRect(x: 100, y: 100, width: 200, height: 100)))
         let out = AnnotationGeometry.resized(a, handle: .box(.bottomRight), to: CGPoint(x: 50, y: 50), shift: false)
-        guard case .rect(let r) = out.shape else { return XCTFail("not rect") }
-        XCTAssertEqual(r, CGRect(x: 50, y: 50, width: 50, height: 50))
+        XCTAssertEqual(out.shape.box, CGRect(x: 50, y: 50, width: 50, height: 50))
         XCTAssertEqual(out.id, a.id)
     }
 
@@ -212,15 +211,13 @@ final class AnnotationGeometryTests: XCTestCase {
         // 拖到零尺寸不该让标注消失：选区那套"塌了就销毁"对标注是破坏性的
         let a = make(.rect(CGRect(x: 100, y: 100, width: 200, height: 100)), .medium)   // 线宽 4 → 最小边 4
         let out = AnnotationGeometry.resized(a, handle: .box(.bottomRight), to: CGPoint(x: 100, y: 100), shift: false)
-        guard case .rect(let r) = out.shape else { return XCTFail("not rect") }
-        XCTAssertEqual(r, CGRect(x: 100, y: 100, width: 4, height: 4))
+        XCTAssertEqual(out.shape.box, CGRect(x: 100, y: 100, width: 4, height: 4))
     }
 
     func testResizeEdgeHandleKeepsTheOtherDimension() {
         let a = make(.rect(CGRect(x: 100, y: 100, width: 200, height: 100)))
         let out = AnnotationGeometry.resized(a, handle: .box(.top), to: CGPoint(x: 999, y: 60), shift: false)
-        guard case .rect(let r) = out.shape else { return XCTFail("not rect") }
-        XCTAssertEqual(r, CGRect(x: 100, y: 60, width: 200, height: 140), "上边中点只改高度")
+        XCTAssertEqual(out.shape.box, CGRect(x: 100, y: 60, width: 200, height: 140), "上边中点只改高度")
     }
 
     func testResizeArrowEndpointKeepsMinimumLength() {

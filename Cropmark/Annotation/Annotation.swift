@@ -80,6 +80,16 @@ struct Annotation: Identifiable, Equatable {
     var isMosaic: Bool { if case .mosaic = shape { return true }; return false }
 }
 
+extension Annotation.Shape {
+    /// 矩形和椭圆背后的那个 CGRect，其余形状没有
+    var box: CGRect? {
+        switch self {
+        case .rect(let r), .ellipse(let r): return r
+        default: return nil
+        }
+    }
+}
+
 /// 标注列表 + 撤销/重做。
 /// 撤销栈存整份列表快照：数组是写时复制，没动过的点集不会真复制，
 /// 比给「增/删/改几何/改样式」各写一遍逆操作可靠得多，量级本来也就十几条。
@@ -120,12 +130,6 @@ final class AnnotationStore {
         guard base != items else { return }   // 按下没动就松开，不该占一条撤销
         push(base)
     }
-    /// 放弃这次拖动，回到按下时的样子
-    func cancelDrag() {
-        if let base = dragBaseline { items = base }
-        dragBaseline = nil
-    }
-
     // MARK: 撤销
 
     @discardableResult
@@ -153,10 +157,12 @@ final class AnnotationStore {
     }
 
     private func mutate(_ body: (inout [Annotation]) -> Void) {
+        // 拖动中的改动并进本次拖动，等 endDrag 一起记。先判它再取快照：
+        // 否则拖拽每帧都要白复制一次数组、白比一次全表
+        guard dragBaseline == nil else { body(&items); return }
         let before = items
         body(&items)
         guard items != before else { return }
-        guard dragBaseline == nil else { return }   // 拖动中：并进本次拖动，等 endDrag 一起记
         push(before)
     }
     private func push(_ snapshot: [Annotation]) {

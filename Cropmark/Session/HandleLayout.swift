@@ -18,9 +18,20 @@ enum Handle: CaseIterable {
         }
     }
 
+    /// 拖拽时每帧都要查（翻转后要换光标），所以直接 switch。
+    /// 走 allCases.first 的话每次都要新分配一个 8 元素数组
     init?(axes a: (x: Int, y: Int)) {
-        guard let h = Handle.allCases.first(where: { $0.axes == a }) else { return nil }
-        self = h
+        switch (a.x, a.y) {
+        case (-1, -1): self = .topLeft
+        case (0, -1): self = .top
+        case (1, -1): self = .topRight
+        case (1, 0): self = .right
+        case (1, 1): self = .bottomRight
+        case (0, 1): self = .bottom
+        case (-1, 1): self = .bottomLeft
+        case (-1, 0): self = .left
+        default: return nil
+        }
     }
 }
 
@@ -95,11 +106,9 @@ enum HandleLayout {
     /// 选区传 0，保持"拖到零就销毁"的老语义。
     static func resized(_ r: CGRect, handle h: Handle, to p: CGPoint, opposite o: CGPoint, minSide m: CGFloat = 0) -> CGRect {
         var q = p
-        switch h {
-        case .top, .bottom: q.x = r.maxX      // 只改高度
-        case .left, .right: q.y = r.maxY      // 只改宽度
-        default: break
-        }
+        // 边中点把手不控制的那一维钉到 maxX/maxY，由下面的 normalized 还原成原值
+        if h.axes.x == 0 { q.x = r.maxX }
+        if h.axes.y == 0 { q.y = r.maxY }
         // 离固定点太近就沿原方向推开；正好重合时按把手自己的朝向挑一边
         func push(_ v: CGFloat, from anchor: CGFloat, axis: Int) -> CGFloat {
             guard abs(v - anchor) < m else { return v }
@@ -108,7 +117,12 @@ enum HandleLayout {
         // 只钳把手自己控制的那个维度，别把 .top 拉成改宽度
         if h.axes.x != 0 { q.x = push(q.x, from: o.x, axis: h.axes.x) }
         if h.axes.y != 0 { q.y = push(q.y, from: o.y, axis: h.axes.y) }
-        return CGRect(x: min(o.x, q.x), y: min(o.y, q.y), width: abs(o.x - q.x), height: abs(o.y - q.y))
+        return Self.normalized(o, q)
+    }
+
+    /// 两点确定的矩形，允许宽高为 0 以便实时显示尺寸。越过对边自然翻转。
+    static func normalized(_ a: CGPoint, _ b: CGPoint) -> CGRect {
+        CGRect(x: min(a.x, b.x), y: min(a.y, b.y), width: abs(a.x - b.x), height: abs(a.y - b.y))
     }
 
     /// 拖过对边之后，手里的把手其实已经变成它的镜像。光标要跟着翻，否则方向是反的。

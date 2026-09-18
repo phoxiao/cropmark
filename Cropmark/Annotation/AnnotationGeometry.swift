@@ -81,15 +81,16 @@ struct AnnotationGeometry {
         }
     }
 
-    /// 命中判定的第一轮：只认描边。
-    /// 矩形和椭圆的肚子是空的，先让"点在谁的线上"决出胜负；
-    /// 其余形状本来就只有描边，两轮同结果。
+    /// 命中判定的第一轮：只认"确凿属于这条标注的墨迹"。
+    /// 矩形和椭圆的肚子是空的，第一轮只认边线，好让"点在谁的线上"先决出胜负。
+    /// 箭头、画笔、马赛克本来就只有描边，两轮同结果；
+    /// 文字虽然也是整块，但那整块就是它的墨迹所在，不是兜底——所以它也该赢第一轮。
     func hitsStroke(_ a: Annotation, at p: CGPoint) -> Bool {
         let t = Self.tolerance(a.style.thickness.lineWidth)
         switch a.shape {
         case .rect(let r): return Self.hitsBorder(r, at: p, tolerance: t)
         case .ellipse(let r): return Self.hitsEllipse(r, at: p, tolerance: t)
-        default: return hits(a, at: p)
+        case .arrow, .pen, .mosaic, .text: return hits(a, at: p)
         }
     }
 
@@ -100,20 +101,22 @@ struct AnnotationGeometry {
         items.last { hitsStroke($0, at: p) } ?? items.last { hits($0, at: p) }
     }
 
-    /// 第一轮用：矩形只描边不填充，这里只认边线附近。
-    /// 小到内圈已经没有了（边长 < 2×容差）就整块算命中，否则几十点的小框根本点不中。
-    static func hitsBorder(_ r: CGRect, at p: CGPoint, tolerance t: CGFloat) -> Bool {
-        guard r.insetBy(dx: -t, dy: -t).contains(p) else { return false }
+    /// 描边带：外扩 t 命中、内缩 t 不命中。
+    /// 内缩之后已经没有内圈了（小图形）就整块算命中，否则几十点的小框根本点不着。
+    private static func hitsBand(_ r: CGRect, tolerance t: CGFloat, contains: (CGRect) -> Bool) -> Bool {
+        guard contains(r.insetBy(dx: -t, dy: -t)) else { return false }
         let inner = r.insetBy(dx: t, dy: t)
-        return !(inner.width > 0 && inner.height > 0 && inner.contains(p))
+        return !(inner.width > 0 && inner.height > 0 && contains(inner))
     }
 
-    /// 第一轮用：外扩、内缩各 t 得到两条同心椭圆，落在夹层里才算命中。
+    static func hitsBorder(_ r: CGRect, at p: CGPoint, tolerance t: CGFloat) -> Bool {
+        hitsBand(r, tolerance: t) { $0.contains(p) }
+    }
+
+    /// 椭圆的描边带同样是外扩/内缩各 t 的两条同心椭圆夹层。
     /// 不用"从中心发射线求交点"那种近似——400×40 的扁椭圆在中段会把距离高估好几倍，根本点不中。
     static func hitsEllipse(_ r: CGRect, at p: CGPoint, tolerance t: CGFloat) -> Bool {
-        guard inside(ellipse: r.insetBy(dx: -t, dy: -t), p) else { return false }
-        let inner = r.insetBy(dx: t, dy: t)
-        return !(inner.width > 0 && inner.height > 0 && inside(ellipse: inner, p))
+        hitsBand(r, tolerance: t) { inside(ellipse: $0, p) }
     }
 
     static func inside(ellipse r: CGRect, _ p: CGPoint) -> Bool {
@@ -175,9 +178,7 @@ struct AnnotationGeometry {
     }
 
     func handle(at p: CGPoint, of a: Annotation) -> AnnotationHandle? {
-        let r = handleRadius(of: a)
-        guard r > 0 else { return nil }
-        return HandleLayout.nearest(at: p, among: handles(of: a), radius: r)
+        HandleLayout.nearest(at: p, among: handles(of: a), radius: handleRadius(of: a))
     }
 
     // MARK: 拖拽

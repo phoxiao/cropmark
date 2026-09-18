@@ -42,7 +42,7 @@ struct SelectionModel {
     mutating func mouseDown(at p: CGPoint) {
         if phase == .selected, let r = rect {
             if let h = Self.handle(at: p, of: r) {
-                phase = .resizing(h, opposite: Self.oppositeCorner(of: h, in: r))
+                phase = .resizing(h, opposite: HandleLayout.opposite(h, in: r))
                 return
             }
             if r.contains(p) {
@@ -101,10 +101,7 @@ struct SelectionModel {
 
     // MARK: 几何
 
-    /// 两点确定的矩形，允许宽高为 0 以便实时显示尺寸
-    static func normalized(_ a: CGPoint, _ b: CGPoint) -> CGRect {
-        CGRect(x: min(a.x, b.x), y: min(a.y, b.y), width: abs(a.x - b.x), height: abs(a.y - b.y))
-    }
+    static func normalized(_ a: CGPoint, _ b: CGPoint) -> CGRect { HandleLayout.normalized(a, b) }
 
     /// 限制在屏幕内并吸附到像素网格
     func clamp(_ p: CGPoint) -> CGPoint {
@@ -121,5 +118,4 @@ struct SelectionModel {
     // 把手几何在 HandleLayout 里，选区和标注共用。这里只留门面。
     static func handleRects(of r: CGRect) -> [(Handle, CGRect)] { HandleLayout.rects(of: r) }
     static func handle(at p: CGPoint, of r: CGRect) -> Handle? { HandleLayout.handle(at: p, of: r) }
-    static func oppositeCorner(of h: Handle, in r: CGRect) -> CGPoint { HandleLayout.opposite(h, in: r) }
 }

@@ -6,7 +6,9 @@ struct AnnotationEditor {
     enum Drag: Equatable {
         /// grab 是按下时的落点，origin 是按下时的那条标注。
         /// 全程以 origin 为基准重算而不是叠加增量——和绘制时从锚点重建是同一个思路，不累积误差。
-        case moving(grab: CGPoint, origin: Annotation)
+        /// bounds 跟着一起冻结：它在整次拖动里是常量，每帧重算等于白给文字排一次版、
+        /// 把几百个笔迹点重新求一遍外接矩形
+        case moving(grab: CGPoint, origin: Annotation, bounds: CGRect)
         case resizing(AnnotationHandle, origin: Annotation)
     }
 
@@ -30,7 +32,7 @@ struct AnnotationEditor {
 
     mutating func beginMoving(_ a: Annotation, grab p: CGPoint) {
         selected = a.id
-        drag = .moving(grab: p, origin: a)
+        drag = .moving(grab: p, origin: a, bounds: geometry.bounds(of: a))
     }
     mutating func beginResizing(_ a: Annotation, handle h: AnnotationHandle) {
         selected = a.id
@@ -41,14 +43,14 @@ struct AnnotationEditor {
     /// 拖拽到 p 之后这条标注应该长什么样，由调用方写回 store。
     func dragged(to p: CGPoint, shift: Bool) -> Annotation? {
         switch drag {
-        case .moving(let grab, let origin):
+        case .moving(let grab, let origin, let bounds):
             // 手抖几个点不算拖动：标注整块可点之后框内是个实心大靶子，
             // 不挡的话"点一下选中"会顺手把它挪走，还占掉一条撤销
             guard hypot(p.x - grab.x, p.y - grab.y) >= SelectionModel.clickThreshold else { return origin }
             // 钳的是位移而不是鼠标点：抓着一条长笔迹的右端往左拖，
             // 钳鼠标点会把左端挤出选区，钳位移才是刚体平移，形状分毫不动
             let raw = CGVector(dx: snap(p.x - grab.x), dy: snap(p.y - grab.y))
-            let d = AnnotationGeometry.clampedOffset(raw, of: geometry.bounds(of: origin), within: limit)
+            let d = AnnotationGeometry.clampedOffset(raw, of: bounds, within: limit)
             return AnnotationGeometry.moved(origin, by: d)
         case .resizing(let h, let origin):
             // 拉把手钳的是鼠标点：固定点本来就在选区内，两点都在内矩形必在内
@@ -61,16 +63,8 @@ struct AnnotationEditor {
     /// 拖拽中当前实际对应的把手：拉伸拖过对边后手里的把手已经变成镜像，光标要跟着翻。
     func liveHandle(of a: Annotation) -> AnnotationHandle? {
         guard case .resizing(let h, let origin) = drag else { return nil }
-        guard case .box(let b) = h, let now = Self.box(of: a), let was = Self.box(of: origin) else { return h }
+        guard case .box(let b) = h, let now = a.shape.box, let was = origin.shape.box else { return h }
         return .box(HandleLayout.live(b, in: now, opposite: HandleLayout.opposite(b, in: was)))
-    }
-
-    /// 矩形/椭圆背后的那个 CGRect，其余形状没有
-    private static func box(of a: Annotation) -> CGRect? {
-        switch a.shape {
-        case .rect(let r), .ellipse(let r): return r
-        default: return nil
-        }
     }
 
     func snap(_ v: CGFloat) -> CGFloat { (v * scale).rounded() / scale }

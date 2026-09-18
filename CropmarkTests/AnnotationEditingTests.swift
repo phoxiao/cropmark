@@ -5,9 +5,17 @@ import XCTest
 @MainActor
 final class AnnotationEditingTests: XCTestCase {
     private let sRGB = CGColorSpace(name: CGColorSpace.sRGB)!
+    /// 挂在实例上由 tearDown 释放。比每个用例写一遍 defer withExtendedLifetime 可靠——
+    /// 忘写一处，那个用例就会在会话提前释放时随机崩
+    private var session: CaptureSession?
+
+    override func tearDown() {
+        session = nil
+        super.tearDown()
+    }
 
     /// 400×300 点 @1x 的白底屏幕
-    private func makeSession() -> (CaptureSession, OverlayWindow, NSPasteboard) {
+    private func makeSession() -> (OverlayWindow, NSPasteboard) {
         let ctx = CGContext(data: nil, width: 400, height: 300, bitsPerComponent: 8, bytesPerRow: 0, space: sRGB,
                             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
         ctx.setFillColor(CGColor(gray: 1, alpha: 1))
@@ -19,7 +27,8 @@ final class AnnotationEditingTests: XCTestCase {
         let session = CaptureSession(snapshots: [snapshot], windowList: [], elementDetection: .off) {}
         session.pasteboard = pb
         session.exportOptions = ExportOptions(copyAt1x: false, saveAt1x: false, clipboardIncludesFile: false)
-        return (session, session.makeWindows()[0], pb)
+        self.session = session
+        return (session.makeWindows()[0], pb)
     }
 
     private func mouse(_ type: NSEvent.EventType, _ p: CGPoint, in w: NSWindow,
@@ -50,13 +59,13 @@ final class AnnotationEditingTests: XCTestCase {
     }
 
     /// 选区 (50,50)-(350,250)，里面画一个 (100,100)-(200,180) 的矩形，画完它是选中态
-    private func withRect() -> (CaptureSession, OverlayWindow, OverlayView) {
-        let (session, window, _) = makeSession()
+    private func withRect() -> (OverlayWindow, OverlayView) {
+        let (window, _) = makeSession()
         let view = window.overlayView
         drag(view, from: CGPoint(x: 50, y: 50), to: CGPoint(x: 350, y: 250), in: window)
         view.selectToolForTesting(.rect)
         drag(view, from: CGPoint(x: 100, y: 100), to: CGPoint(x: 200, y: 180), in: window)
-        return (session, window, view)
+        return (window, view)
     }
 
     private func rect(_ view: OverlayView, _ i: Int = 0) -> CGRect? {
@@ -67,23 +76,20 @@ final class AnnotationEditingTests: XCTestCase {
     // MARK: 选中
 
     func testDrawingAutoSelectsTheNewAnnotation() {
-        let (session, _, view) = withRect()
-        defer { withExtendedLifetime(session) {} }
+        let (_, view) = withRect()
         XCTAssertEqual(view.annotationCount, 1)
         XCTAssertEqual(view.selectedAnnotationForTesting?.id, view.annotationsForTesting.first?.id,
                        "画完要立刻处于可调整状态，否则又得撤销重画")
     }
 
     func testClickingBlankSpaceDeselects() {
-        let (session, window, view) = withRect()
-        defer { withExtendedLifetime(session) {} }
+        let (window, view) = withRect()
         click(view, at: CGPoint(x: 300, y: 220), in: window)   // 选区内、标注外
         XCTAssertNil(view.selectedAnnotationForTesting)
     }
 
     func testClickingInsideARectSelectsIt() {
-        let (session, window, view) = withRect()
-        defer { withExtendedLifetime(session) {} }
+        let (window, view) = withRect()
         view.selectToolForTesting(nil)
         click(view, at: CGPoint(x: 300, y: 220), in: window)   // 先取消选中
         click(view, at: CGPoint(x: 150, y: 140), in: window)   // 框内任意位置
@@ -95,8 +101,7 @@ final class AnnotationEditingTests: XCTestCase {
     /// 老代码里 select(nil) 在按下那一刻就执行了，而把选中还回来的 select(a.id)
     /// 藏在 endDrawing 的尺寸门槛之后——一次没位移的点击就成了纯粹的取消选中，不可逆
     func testClickingBlankThenTheRectSelectsItAgainWhileToolIsArmed() {
-        let (session, window, view) = withRect()   // 矩形工具还亮着
-        defer { withExtendedLifetime(session) {} }
+        let (window, view) = withRect()   // 矩形工具还亮着
         click(view, at: CGPoint(x: 300, y: 220), in: window)   // 选区内空白
         XCTAssertNil(view.selectedAnnotationForTesting)
         click(view, at: CGPoint(x: 150, y: 140), in: window)   // 回去点那个框
@@ -105,16 +110,14 @@ final class AnnotationEditingTests: XCTestCase {
     }
 
     func testDragStillDrawsAfterAClick() {
-        let (session, window, view) = withRect()
-        defer { withExtendedLifetime(session) {} }
+        let (window, view) = withRect()
         click(view, at: CGPoint(x: 150, y: 140), in: window)   // 点框内：选中
         drag(view, from: CGPoint(x: 250, y: 100), to: CGPoint(x: 300, y: 160), in: window)
         XCTAssertEqual(view.annotationCount, 2, "修了点选不能弄坏画新的")
     }
 
     func testTinyDragIsStillAClick() {
-        let (session, window, view) = withRect()
-        defer { withExtendedLifetime(session) {} }
+        let (window, view) = withRect()
         view.selectToolForTesting(nil)
         click(view, at: CGPoint(x: 300, y: 220), in: window)
         // 按下后只挪了 1 点就松手：算点选，不算拖动
@@ -127,8 +130,7 @@ final class AnnotationEditingTests: XCTestCase {
 
     /// 画笔的"单击"本来就是落一个点，不该被点选机制吃掉
     func testPenClickStillCommitsADot() {
-        let (session, window, _) = makeSession()
-        defer { withExtendedLifetime(session) {} }
+        let (window, _) = makeSession()
         let view = window.overlayView
         drag(view, from: CGPoint(x: 50, y: 50), to: CGPoint(x: 350, y: 250), in: window)
         view.selectToolForTesting(.pen)
@@ -140,8 +142,7 @@ final class AnnotationEditingTests: XCTestCase {
     /// 标注整块可点之后，一个盖住选区角的大框会让选区拉不动——
     /// 把手是画出来的白点，用户看得见就必须点得中
     func testSelectionHandleWinsOverAnAnnotationBodyCoveringIt() {
-        let (session, window, _) = makeSession()
-        defer { withExtendedLifetime(session) {} }
+        let (window, _) = makeSession()
         let view = window.overlayView
         drag(view, from: CGPoint(x: 50, y: 50), to: CGPoint(x: 250, y: 200), in: window)
         view.selectToolForTesting(.rect)
@@ -157,8 +158,7 @@ final class AnnotationEditingTests: XCTestCase {
     }
 
     func testDoubleClickOnARectStillFinishes() {
-        let (session, window, pb) = makeSession()
-        defer { withExtendedLifetime(session) {} }
+        let (window, pb) = makeSession()
         let view = window.overlayView
         drag(view, from: CGPoint(x: 50, y: 50), to: CGPoint(x: 350, y: 250), in: window)
         view.selectToolForTesting(.rect)
@@ -169,8 +169,7 @@ final class AnnotationEditingTests: XCTestCase {
     }
 
     func testDoubleClickWithAToolArmedDoesNotFinishTheSession() {
-        let (session, window, pb) = makeSession()
-        defer { withExtendedLifetime(session) {} }
+        let (window, pb) = makeSession()
         let view = window.overlayView
         drag(view, from: CGPoint(x: 50, y: 50), to: CGPoint(x: 350, y: 250), in: window)
         view.selectToolForTesting(.pen)
@@ -182,8 +181,7 @@ final class AnnotationEditingTests: XCTestCase {
     // MARK: 拉伸
 
     func testCornerDragResizesTheJustDrawnRectWhileToolIsStillArmed() {
-        let (session, window, view) = withRect()
-        defer { withExtendedLifetime(session) {} }
+        let (window, view) = withRect()
         // 矩形工具还亮着，从右下角起拖：拉的是刚画那条，不是画新的
         drag(view, from: CGPoint(x: 200, y: 180), to: CGPoint(x: 260, y: 220), in: window)
         XCTAssertEqual(view.annotationCount, 1)
@@ -191,16 +189,14 @@ final class AnnotationEditingTests: XCTestCase {
     }
 
     func testToolStillDrawsWhenStartingOnAnOldAnnotationBorder() {
-        let (session, window, view) = withRect()
-        defer { withExtendedLifetime(session) {} }
+        let (window, view) = withRect()
         // 上边线上、离把手足够远的一点。工具亮着就该画新的——亮着的工具是个显式的模式声明
         drag(view, from: CGPoint(x: 125, y: 100), to: CGPoint(x: 160, y: 130), in: window)
         XCTAssertEqual(view.annotationCount, 2)
     }
 
     func testCommandClickSelectsAnnotationWhileToolIsArmed() {
-        let (session, window, view) = withRect()
-        defer { withExtendedLifetime(session) {} }
+        let (window, view) = withRect()
         click(view, at: CGPoint(x: 300, y: 220), in: window)   // 先取消选中
         // 工具还亮着，按住 ⌘ 让路：给"就是想改旧框"一个不用先关工具的出口
         drag(view, from: CGPoint(x: 125, y: 100), to: CGPoint(x: 145, y: 130), in: window, flags: .command)
@@ -209,8 +205,7 @@ final class AnnotationEditingTests: XCTestCase {
     }
 
     func testResizeClampsToMinSizeInsteadOfDeletingTheAnnotation() {
-        let (session, window, view) = withRect()
-        defer { withExtendedLifetime(session) {} }
+        let (window, view) = withRect()
         // 把右下角拖回左上角：钳到最小边长，而不是像选区那样塌了就销毁
         drag(view, from: CGPoint(x: 200, y: 180), to: CGPoint(x: 100, y: 100), in: window)
         XCTAssertEqual(view.annotationCount, 1, "手一抖不该无声删掉一条已经画好的标注")
@@ -220,8 +215,7 @@ final class AnnotationEditingTests: XCTestCase {
     // MARK: 拖动
 
     func testClickingAnAnnotationBorderSelectsAndDragsIt() {
-        let (session, window, view) = withRect()
-        defer { withExtendedLifetime(session) {} }
+        let (window, view) = withRect()
         view.selectToolForTesting(nil)
         drag(view, from: CGPoint(x: 125, y: 100), to: CGPoint(x: 145, y: 130), in: window)
         XCTAssertEqual(view.annotationCount, 1)
@@ -229,8 +223,7 @@ final class AnnotationEditingTests: XCTestCase {
     }
 
     func testAnnotationCannotBeDraggedOutOfTheSelection() {
-        let (session, window, view) = withRect()
-        defer { withExtendedLifetime(session) {} }
+        let (window, view) = withRect()
         view.selectToolForTesting(nil)
         // 往上拖出天际：外接矩形贴住选区上沿就停住。
         // 拖出去的话它会被裁掉、看着像凭空消失，但其实还在，还占着 Delete 和 ⌘Z
@@ -241,8 +234,7 @@ final class AnnotationEditingTests: XCTestCase {
     // MARK: 删除
 
     func testDeleteRemovesTheSelectedAnnotation() {
-        let (session, window, view) = withRect()
-        defer { withExtendedLifetime(session) {} }
+        let (window, view) = withRect()
         drag(view, from: CGPoint(x: 250, y: 100), to: CGPoint(x: 300, y: 150), in: window)
         XCTAssertEqual(view.annotationCount, 2)
         view.keyDown(with: key(51, chars: "\u{8}", in: window))   // Delete
@@ -254,8 +246,7 @@ final class AnnotationEditingTests: XCTestCase {
     // MARK: 撤销与重做
 
     func testUndoRestoresTheGeometryBeforeAResize() {
-        let (session, window, view) = withRect()
-        defer { withExtendedLifetime(session) {} }
+        let (window, view) = withRect()
         drag(view, from: CGPoint(x: 200, y: 180), to: CGPoint(x: 260, y: 220), in: window)
         XCTAssertEqual(rect(view), CGRect(x: 100, y: 100, width: 160, height: 120))
         view.keyDown(with: key(6, chars: "z", flags: .command, in: window))
@@ -264,8 +255,7 @@ final class AnnotationEditingTests: XCTestCase {
     }
 
     func testRedoReappliesTheResize() {
-        let (session, window, view) = withRect()
-        defer { withExtendedLifetime(session) {} }
+        let (window, view) = withRect()
         drag(view, from: CGPoint(x: 200, y: 180), to: CGPoint(x: 260, y: 220), in: window)
         view.keyDown(with: key(6, chars: "z", flags: .command, in: window))
         XCTAssertTrue(view.canRedoForTesting)
@@ -274,8 +264,7 @@ final class AnnotationEditingTests: XCTestCase {
     }
 
     func testClickWithoutMovingDoesNotConsumeAnUndoStep() {
-        let (session, window, view) = withRect()
-        defer { withExtendedLifetime(session) {} }
+        let (window, view) = withRect()
         view.selectToolForTesting(nil)
         click(view, at: CGPoint(x: 125, y: 100), in: window)   // 按下即松开，什么都没动
         view.keyDown(with: key(6, chars: "z", flags: .command, in: window))
@@ -283,8 +272,7 @@ final class AnnotationEditingTests: XCTestCase {
     }
 
     func testUndoClearsASelectionThatNoLongerExists() {
-        let (session, window, view) = withRect()
-        defer { withExtendedLifetime(session) {} }
+        let (window, view) = withRect()
         view.keyDown(with: key(6, chars: "z", flags: .command, in: window))
         XCTAssertEqual(view.annotationCount, 0)
         XCTAssertNil(view.selectedAnnotationForTesting, "撤销掉的那条不能还留着虚线框")
@@ -293,8 +281,7 @@ final class AnnotationEditingTests: XCTestCase {
     // MARK: 改样式
 
     func testStyleChangeAppliesToTheSelectedAnnotation() {
-        let (session, window, view) = withRect()
-        defer { withExtendedLifetime(session) {} }
+        let (window, view) = withRect()
         let blue = Style(color: Palette.colors[2], thickness: .thick)
         view.applyStyleForTesting(blue)
         XCTAssertEqual(view.annotationsForTesting.first?.style, blue)
@@ -303,8 +290,7 @@ final class AnnotationEditingTests: XCTestCase {
     }
 
     func testStyleChangeWithoutSelectionOnlyAffectsTheNextAnnotation() {
-        let (session, window, view) = withRect()
-        defer { withExtendedLifetime(session) {} }
+        let (window, view) = withRect()
         click(view, at: CGPoint(x: 300, y: 220), in: window)   // 取消选中
         view.applyStyleForTesting(Style(color: Palette.colors[2], thickness: .thick))
         XCTAssertEqual(view.annotationsForTesting.first?.style.thickness, .medium, "没选中就别动已有的")
@@ -313,8 +299,7 @@ final class AnnotationEditingTests: XCTestCase {
     // MARK: 重新框选
 
     func testReselectingClearsAnnotationsAndSelectionState() {
-        let (session, window, view) = withRect()
-        defer { withExtendedLifetime(session) {} }
+        let (window, view) = withRect()
         view.selectToolForTesting(nil)
         drag(view, from: CGPoint(x: 10, y: 10), to: CGPoint(x: 40, y: 40), in: window)
         XCTAssertEqual(view.annotationCount, 0)
@@ -324,8 +309,7 @@ final class AnnotationEditingTests: XCTestCase {
     // MARK: 和选区把手抢地盘
 
     func testAnnotationHandleWinsOverTheSelectionHandleWhenTheyOverlap() {
-        let (session, window, _) = makeSession()
-        defer { withExtendedLifetime(session) {} }
+        let (window, _) = makeSession()
         let view = window.overlayView
         drag(view, from: CGPoint(x: 50, y: 50), to: CGPoint(x: 250, y: 200), in: window)
         view.selectToolForTesting(.rect)
@@ -340,8 +324,7 @@ final class AnnotationEditingTests: XCTestCase {
     // MARK: 导出
 
     func testResizedAnnotationExportsAtItsNewGeometry() throws {
-        let (session, window, pb) = makeSession()
-        defer { withExtendedLifetime(session) {} }
+        let (window, pb) = makeSession()
         let view = window.overlayView
         drag(view, from: CGPoint(x: 50, y: 50), to: CGPoint(x: 350, y: 250), in: window)
         view.selectToolForTesting(.rect)
@@ -380,8 +363,8 @@ final class AnnotationEditingTests: XCTestCase {
 
 extension AnnotationEditingTests {
     /// 选区 (50,50)-(350,250)，在 (100,100) 写一条 "hello"，然后取消工具
-    private func withText() throws -> (CaptureSession, OverlayWindow, OverlayView) {
-        let (session, window, _) = makeSession()
+    private func withText() throws -> (OverlayWindow, OverlayView) {
+        let (window, _) = makeSession()
         let view = window.overlayView
         drag(view, from: CGPoint(x: 50, y: 50), to: CGPoint(x: 350, y: 250), in: window)
         view.selectToolForTesting(.text)
@@ -390,7 +373,7 @@ extension AnnotationEditingTests {
         field.string = "hello"
         field.commit()
         view.selectToolForTesting(nil)
-        return (session, window, view)
+        return (window, view)
     }
 
     private func openEditor(_ view: OverlayView, at p: CGPoint, in window: NSWindow) throws -> TextEditorOverlay {
@@ -404,8 +387,7 @@ extension AnnotationEditingTests {
     }
 
     func testDoubleClickReopensCommittedTextWithItsContent() throws {
-        let (session, window, view) = try withText()
-        defer { withExtendedLifetime(session) {} }
+        let (window, view) = try withText()
         XCTAssertEqual(view.annotationCount, 1)
         let field = try openEditor(view, at: CGPoint(x: 110, y: 105), in: window)
         XCTAssertEqual(field.string, "hello", "重新打开要预填原文，而不是从空白开始")
@@ -413,8 +395,7 @@ extension AnnotationEditingTests {
     }
 
     func testEditingTextUpdatesInPlaceAndIsUndoable() throws {
-        let (session, window, view) = try withText()
-        defer { withExtendedLifetime(session) {} }
+        let (window, view) = try withText()
         let field = try openEditor(view, at: CGPoint(x: 110, y: 105), in: window)
         field.string = "world"
         field.commit()
@@ -426,8 +407,7 @@ extension AnnotationEditingTests {
     }
 
     func testClearingTextOnReEditDeletesTheAnnotation() throws {
-        let (session, window, view) = try withText()
-        defer { withExtendedLifetime(session) {} }
+        let (window, view) = try withText()
         let field = try openEditor(view, at: CGPoint(x: 110, y: 105), in: window)
         field.string = "  "
         field.commit()
@@ -436,8 +416,7 @@ extension AnnotationEditingTests {
     }
 
     func testEscapeDuringReEditKeepsTheOriginal() throws {
-        let (session, window, view) = try withText()
-        defer { withExtendedLifetime(session) {} }
+        let (window, view) = try withText()
         let field = try openEditor(view, at: CGPoint(x: 110, y: 105), in: window)
         field.string = "changed"
         field.keyDown(with: key(53, chars: "\u{1b}", in: window))
@@ -446,8 +425,7 @@ extension AnnotationEditingTests {
     }
 
     func testEmptyNewTextLeavesNothingBehind() throws {
-        let (session, window, _) = makeSession()
-        defer { withExtendedLifetime(session) {} }
+        let (window, _) = makeSession()
         let view = window.overlayView
         drag(view, from: CGPoint(x: 50, y: 50), to: CGPoint(x: 350, y: 250), in: window)
         view.selectToolForTesting(.text)
@@ -458,8 +436,7 @@ extension AnnotationEditingTests {
     }
 
     func testTextCanBeDraggedAsAWhole() throws {
-        let (session, window, view) = try withText()
-        defer { withExtendedLifetime(session) {} }
+        let (window, view) = try withText()
         drag(view, from: CGPoint(x: 110, y: 105), to: CGPoint(x: 160, y: 145), in: window)
         guard case .text(_, let origin, _) = view.annotationsForTesting[0].shape else { return XCTFail("not text") }
         XCTAssertEqual(origin, CGPoint(x: 150, y: 140), "文字没有把手，但整条可以拖走")
