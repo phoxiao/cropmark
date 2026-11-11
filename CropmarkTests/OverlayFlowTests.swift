@@ -570,8 +570,12 @@ final class HoverResolverTests: XCTestCase {
         locator.gateCall = 1
         resolver.refine(window: window, at: elsewhere) { delivered.append($0) }
         for _ in 0..<5 { resolver.refine(window: window, at: elsewhere) { delivered.append($0) } }
-        resolver.refine(window: window, at: insideDialog) { delivered.append($0) }
+        // 最新那条要等两轮「后台查询 + 回主线程」，settle 只跳一轮，主线程一忙就会抢在结果前面收尾。
+        // 直接等它的回调落地，再 settle 一轮确认没有别的结果跟着上屏
+        let newest = expectation(description: "newest delivered")
+        resolver.refine(window: window, at: insideDialog) { delivered.append($0); newest.fulfill() }
         locator.open()
+        wait(for: [newest], timeout: 2)
         settle()
 
         XCTAssertEqual(locator.callCount, 2, "中间那几个请求不该各发一次查询")

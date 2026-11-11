@@ -138,7 +138,19 @@ struct LinkRow: View {
 
 /// 截图界面的按键说明表
 struct KeyTable: View {
-    private let rows: [(keys: [String], action: String)] = [
+    typealias Row = (keys: [String], action: String)
+    var rows: [Row] = KeyTable.captureRows
+
+    static let historyRows: [Row] = [
+        (["←", "→"], L10n.t("选择截图")),
+        (["Enter", L10n.t("双击")], L10n.t("重新编辑标注")),
+        (["⌘C"], L10n.t("复制到剪贴板")),
+        (["⌘S"], L10n.t("保存为 PNG 文件")),
+        (["Delete"], L10n.t("删除这张")),
+        (["Esc"], L10n.t("关闭")),
+    ]
+
+    static let captureRows: [Row] = [
         ([L10n.t("拖动")], L10n.t("框选区域；松手后可拉伸、移动选区")),
         ([L10n.t("单击")], L10n.t("选中光标下的窗口")),
         (["Enter", L10n.t("双击")], L10n.t("完成，复制到剪贴板")),

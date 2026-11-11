@@ -12,6 +12,18 @@ enum Preferences {
         static let copyAt1x = "copyAt1x"
         static let saveAt1x = "saveAt1x"
         static let clipboardIncludesFile = "clipboardIncludesFile"
+        static let historyLimit = "historyLimit"
+    }
+
+    static let historyLimitRange = 0...20
+
+    /// 截图历史保留几张，0 表示关闭。调小后由调用方让 HistoryStore 立刻删掉多出来的
+    static var historyLimit: Int {
+        get {
+            let v = defaults.object(forKey: Key.historyLimit) as? Int ?? 5
+            return min(max(v, historyLimitRange.lowerBound), historyLimitRange.upperBound)
+        }
+        set { defaults.set(min(max(newValue, historyLimitRange.lowerBound), historyLimitRange.upperBound), forKey: Key.historyLimit) }
     }
 
     static var playSound: Bool {

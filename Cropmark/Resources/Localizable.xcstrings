@@ -21,6 +21,16 @@
         }
       }
     },
+    "%@ 张": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ captures"
+          }
+        }
+      }
+    },
     "Cropmark 截图": {
       "localizations": {
         "en": {
@@ -111,6 +121,16 @@
         }
       }
     },
+    "保存到文件 ⌘S": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Save to File ⌘S"
+          }
+        }
+      }
+    },
     "保存失败": {
       "localizations": {
         "en": {
@@ -131,6 +151,16 @@
         }
       }
     },
+    "保存最近的截图": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep recent captures"
+          }
+        }
+      }
+    },
     "关于": {
       "localizations": {
         "en": {
@@ -141,12 +171,52 @@
         }
       }
     },
+    "关闭": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Off"
+          }
+        }
+      }
+    },
     "写入 %@ 失败：%@": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Failed to write %@: %@"
+          }
+        }
+      }
+    },
+    "删除 Delete": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete"
+          }
+        }
+      }
+    },
+    "删除后无法恢复。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This can't be undone."
+          }
+        }
+      }
+    },
+    "删除这张": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete this capture"
           }
         }
       }
@@ -221,12 +291,42 @@
         }
       }
     },
+    "只保存在本机。打过马赛克的区域不保留原图。设为 0 关闭截图历史，已保存的会一并删除。": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stored on this Mac only. Mosaicked areas are not kept in their original form. Set to 0 to turn history off and delete what's saved."
+          }
+        }
+      }
+    },
     "右键": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Right-click"
+          }
+        }
+      }
+    },
+    "复制 ⌘C": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy ⌘C"
+          }
+        }
+      }
+    },
+    "复制到剪贴板": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy to clipboard"
           }
         }
       }
@@ -291,6 +391,16 @@
         }
       }
     },
+    "已保存的截图": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saved captures"
+          }
+        }
+      }
+    },
     "已授权，可以截图": {
       "localizations": {
         "en": {
@@ -327,6 +437,46 @@
           "stringUnit": {
             "state": "translated",
             "value": "Capture"
+          }
+        }
+      }
+    },
+    "截图历史": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Capture History"
+          }
+        }
+      }
+    },
+    "截图历史 %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Capture History %@"
+          }
+        }
+      }
+    },
+    "截图历史快捷键": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Capture history shortcut"
+          }
+        }
+      }
+    },
+    "截图历史面板": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Capture history panel"
           }
         }
       }
@@ -561,6 +711,36 @@
         }
       }
     },
+    "清空": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clear"
+          }
+        }
+      }
+    },
+    "清空历史…": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clear History…"
+          }
+        }
+      }
+    },
+    "清空所有历史截图？": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clear all capture history?"
+          }
+        }
+      }
+    },
     "版本 %@": {
       "localizations": {
         "en": {
@@ -671,6 +851,16 @@
         }
       }
     },
+    "编辑 Enter": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Edit Enter"
+          }
+        }
+      }
+    },
     "缩放": {
       "localizations": {
         "en": {
@@ -751,6 +941,16 @@
         }
       }
     },
+    "还没有截图": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No captures yet"
+          }
+        }
+      }
+    },
     "退出 Cropmark": {
       "localizations": {
         "en": {
@@ -771,6 +971,16 @@
         }
       }
     },
+    "选择截图": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Select a capture"
+          }
+        }
+      }
+    },
     "通用": {
       "localizations": {
         "en": {
@@ -787,6 +997,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Start a new selection; press again to exit"
+          }
+        }
+      }
+    },
+    "重新编辑标注": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Edit annotations again"
           }
         }
       }

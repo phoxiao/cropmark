@@ -23,6 +23,8 @@ struct SelectionModel {
     private(set) var rect: CGRect?
     /// 光标悬停识别出的候选窗口
     var hoverRect: CGRect?
+    /// 选区锁死：重新编辑历史截图时选区就是那张图的边界，不能拖、不能拉、不能重新框
+    private(set) var isLocked = false
 
     init(bounds: CGRect, scale: CGFloat = 1) {
         self.bounds = bounds
@@ -39,7 +41,16 @@ struct SelectionModel {
 
     // MARK: 事件
 
+    /// 直接定下一个不可改的选区
+    mutating func lock(to r: CGRect) {
+        rect = r
+        hoverRect = nil
+        phase = .selected
+        isLocked = true
+    }
+
     mutating func mouseDown(at p: CGPoint) {
+        guard !isLocked else { return }
         if phase == .selected, let r = rect {
             if let h = Self.handle(at: p, of: r) {
                 phase = .resizing(h, opposite: HandleLayout.opposite(h, in: r))
@@ -95,6 +106,7 @@ struct SelectionModel {
     }
 
     mutating func clearSelection() {
+        guard !isLocked else { return }
         rect = nil
         phase = .idle
     }

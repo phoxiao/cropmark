@@ -39,6 +39,10 @@ struct GeneralPane: View {
                 SettingsRow(L10n.t("截图快捷键")) {
                     KeyboardShortcuts.Recorder(for: .capture) { _ in onShortcutChange() }
                 }
+                Divider().padding(.leading, 14)
+                SettingsRow(L10n.t("截图历史快捷键")) {
+                    KeyboardShortcuts.Recorder(for: .history)
+                }
             }
             SettingsSection(title: L10n.t("行为"), footer: behaviorFooter) {
                 SettingsRow(L10n.t("截图完成后播放提示音")) {
@@ -76,11 +80,13 @@ struct GeneralPane: View {
     }
 }
 
-/// 输出：Retina 缩放、剪贴板附带文件
+/// 输出：Retina 缩放、剪贴板附带文件、截图历史
 struct OutputPane: View {
     @State private var copyAt1x = Preferences.copyAt1x
     @State private var saveAt1x = Preferences.saveAt1x
     @State private var clipboardIncludesFile = Preferences.clipboardIncludesFile
+    @State private var historyLimit = Preferences.historyLimit
+    @State private var confirmClear = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -101,6 +107,28 @@ struct OutputPane: View {
                         .onChange(of: clipboardIncludesFile) { _, v in Preferences.clipboardIncludesFile = v }
                 }
             }
+            SettingsSection(title: L10n.t("截图历史"), footer: L10n.t("只保存在本机。打过马赛克的区域不保留原图。设为 0 关闭截图历史，已保存的会一并删除。")) {
+                SettingsRow(L10n.t("保存最近的截图")) {
+                    Stepper(value: $historyLimit, in: Preferences.historyLimitRange) {
+                        Text(historyLimit == 0 ? L10n.t("关闭") : L10n.t("%@ 张", "\(historyLimit)"))
+                            .monospacedDigit()
+                            .foregroundStyle(.secondary)
+                    }
+                    .onChange(of: historyLimit) { _, v in
+                        Preferences.historyLimit = v
+                        HistoryStore.shared.prune()   // 调小立刻生效：磁盘上的张数和这里显示的一致
+                    }
+                }
+                Divider().padding(.leading, 14)
+                SettingsRow(L10n.t("已保存的截图")) {
+                    Button(L10n.t("清空历史…")) { confirmClear = true }
+                        .confirmationDialog(L10n.t("清空所有历史截图？"), isPresented: $confirmClear) {
+                            Button(L10n.t("清空"), role: .destructive) { HistoryStore.shared.clear() }
+                        } message: {
+                            Text(L10n.t("删除后无法恢复。"))
+                        }
+                }
+            }
         }
     }
 }
@@ -108,10 +136,17 @@ struct OutputPane: View {
 /// 按键：截图界面的按键说明
 struct KeysPane: View {
     var body: some View {
-        SettingsSection(title: L10n.t("截图时的按键")) {
-            KeyTable()
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 14).padding(.vertical, 10)
+        VStack(alignment: .leading, spacing: 14) {
+            SettingsSection(title: L10n.t("截图时的按键")) {
+                KeyTable()
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 14).padding(.vertical, 10)
+            }
+            SettingsSection(title: L10n.t("截图历史面板")) {
+                KeyTable(rows: KeyTable.historyRows)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 14).padding(.vertical, 10)
+            }
         }
     }
 }

@@ -147,6 +147,12 @@ final class AnnotationStore {
         return true
     }
 
+    /// 载入一组现成的标注（重新编辑历史截图）。不占撤销：⌘Z 不该把存档里的标注撤没
+    func load(_ list: [Annotation]) {
+        removeAll()
+        items = list
+    }
+
     /// 重新框选：连撤销栈一起清。旧选区里的标注已经没有意义，
     /// 也不该被 ⌘Z 复活到一个不存在的选区里。
     func removeAll() {

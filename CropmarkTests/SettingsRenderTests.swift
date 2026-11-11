@@ -17,9 +17,9 @@ final class SettingsRenderTests: XCTestCase {
 
         let heights = try renderSettingsTabs(namePrefix: "preview-5-settings")
 
-        // 四个分页不该是同一个高度，否则说明窗口没跟着内容走
-        let general = try XCTUnwrap(heights[.general])
-        let keys = try XCTUnwrap(heights[.keys])
-        XCTAssertGreaterThan(general - keys, 80, "各分页高度没有区分: \(heights)")
+        // 四个分页不该是同一个高度，否则说明窗口没跟着内容走。
+        // 不绑定具体哪两页：「按键」页加了历史面板一节后和「通用」差不多高，比的是最高和最矮
+        let values = heights.values
+        XCTAssertGreaterThan(try XCTUnwrap(values.max()) - XCTUnwrap(values.min()), 80, "各分页高度没有区分: \(heights)")
     }
 }

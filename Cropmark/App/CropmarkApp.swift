@@ -4,6 +4,8 @@ import KeyboardShortcuts
 extension KeyboardShortcuts.Name {
     /// 截图快捷键，默认 ⌃⌘A（与常见聊天软件的截图键一致，方便迁移习惯）
     static let capture = Self("capture", default: .init(.a, modifiers: [.control, .command]))
+    /// 截图历史快捷键，默认 ⌃⌘H：和截图键共用一套修饰键，好记
+    static let history = Self("history", default: .init(.h, modifiers: [.control, .command]))
 }
 
 @main
@@ -23,7 +25,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var statusItem: StatusItemController!
     private var settingsWindow: SettingsWindowController?
-    private let coordinator = CaptureCoordinator()
+    private let coordinator = CaptureCoordinator(historyShortcut: { KeyboardShortcuts.getShortcut(for: .history)?.description })
 
     /// 单元测试把本应用当宿主拉起时为 true：不注册快捷键、不建菜单栏、不碰权限
     static var isRunningTests: Bool {
@@ -34,6 +36,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard !Self.isRunningTests else { return }
         statusItem = StatusItemController(
             onCapture: { [weak self] in self?.coordinator.begin() },
+            onHistory: { [weak self] in self?.coordinator.showHistory() },
             onSettings: { [weak self] in self?.showSettings() },
             onCheckUpdates: { Updates.checkForUpdates() },
             onQuit: { NSApp.terminate(nil) }
@@ -41,6 +44,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Updates.start()
         KeyboardShortcuts.onKeyDown(for: .capture) { [weak self] in
             self?.coordinator.begin()
+        }
+        KeyboardShortcuts.onKeyDown(for: .history) { [weak self] in
+            self?.coordinator.showHistory()
         }
         // 权限不在启动时申请：任何一份未授权的构建（比如测试宿主）一启动就会弹系统授权框，
         // 用户按快捷键触发截图时再由 PermissionGuard.ensureAccessOrExplain 申请。

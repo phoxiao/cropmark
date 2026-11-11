@@ -18,19 +18,37 @@ final class CaptureCoordinator {
     /// 抓屏进行中（还没有 session 对象）。这段时间再按快捷键必须忽略，
     /// 否则会开出第二个会话，第一个会话的覆盖窗会失去 session 变成关不掉的遮罩。
     private var starting = false
+    private let history: HistoryStore
+    /// 历史快捷键的显示文字，放进覆盖层按钮的提示里
+    private let historyShortcut: () -> String?
+    private var panel: HistoryPanelController?
 
     var isBusy: Bool { starting || session != nil }
+    var isEditingHistory: Bool { session?.editContext != nil }
+    var isHistoryPanelVisible: Bool { panel?.isVisible ?? false }
+    var historyPanelForTesting: HistoryPanelController? { panel }
+    var sessionForTesting: CaptureSession? { session }
 
     init(ensurePermission: @escaping @MainActor () -> Bool = { PermissionGuard.ensureAccessOrExplain() },
-         grab: @escaping Grabber = { try await ScreenGrabber.grabAllScreens() }) {
+         grab: @escaping Grabber = { try await ScreenGrabber.grabAllScreens() },
+         history: HistoryStore? = nil,
+         historyShortcut: @escaping () -> String? = { nil }) {
         self.ensurePermission = ensurePermission
         self.grab = grab
+        self.history = history ?? .shared
+        self.historyShortcut = historyShortcut
     }
 
     func begin() {
+        // 历史面板开着时按截图键：收起面板去截图，焦点最后还给打开面板之前的那个应用
+        var previous = NSWorkspace.shared.frontmostApplication
+        if let p = panel {
+            previous = panelPrevious
+            panel = nil
+            p.close(notify: false)
+        }
         guard !isBusy else { return }
         // 记下用户正在用的应用，截完把焦点还回去，这样 Enter 之后直接 ⌘V 就能粘贴
-        let previous = NSWorkspace.shared.frontmostApplication
         guard ensurePermission() else { return }
         starting = true
         Task { @MainActor in
@@ -40,6 +58,11 @@ final class CaptureCoordinator {
                 let s = CaptureSession(snapshots: snapshots,
                                        returnFocus: { Self.reactivate(previous) },
                                        onFinish: { [weak self] in self?.session = nil })
+                s.history = history
+                if history.isEnabled {
+                    s.onOpenHistory = { [weak self] in self?.showHistory(returnTo: previous) }
+                    s.historyTooltip = historyShortcut().map { L10n.t("截图历史 %@", $0) } ?? L10n.t("截图历史")
+                }
                 session = s
                 s.start()
             } catch is CancellationError {
@@ -57,6 +80,76 @@ final class CaptureCoordinator {
                 }
             }
         }
+    }
+
+    // MARK: 截图历史
+
+    /// 打开面板之前在用的应用。面板被动关掉（Esc、点了别处）或复制之后，焦点还给它
+    private var panelPrevious: NSRunningApplication?
+
+    /// 历史快捷键 / 菜单项。截图进行中等同于点右上角按钮；重新编辑中忽略，免得丢掉改了一半的标注
+    func showHistory() {
+        guard history.isEnabled, !starting else { return }
+        if let s = session {
+            if s.editContext == nil { s.openHistory() }
+            return
+        }
+        if let panel, panel.isVisible { panel.bringToFront(); return }
+        showHistory(returnTo: NSWorkspace.shared.frontmostApplication)
+    }
+
+    private func showHistory(returnTo previous: NSRunningApplication?) {
+        guard history.isEnabled, !isBusy else { return }
+        panel?.close(notify: false)
+        panelPrevious = previous
+        let p = HistoryPanelController(store: history)
+        p.onClose = { [weak self] in
+            guard let self else { return }
+            self.panel = nil
+            Self.reactivate(previous)
+        }
+        p.onAction = { [weak self] action, entry in
+            guard let self else { return }
+            self.panel = nil
+            self.perform(action, entry, returnTo: previous)
+        }
+        panel = p
+        p.show()
+    }
+
+    private func perform(_ action: HistoryAction, _ entry: HistoryEntry, returnTo previous: NSRunningApplication?) {
+        switch action {
+        case .copy:
+            guard let img = history.final(for: entry) else { NSSound.beep(); return }
+            let opts = ExportOptions.current
+            let out = Exporter.output(img, scale: entry.scale, at1x: opts.copyAt1x)
+            Exporter.copyToPasteboard(out.image, scale: out.scale, includeFile: opts.clipboardIncludesFile)
+            if Preferences.playSound { Exporter.playCaptureSound() }
+            Self.reactivate(previous)
+        case .save:
+            guard let img = history.final(for: entry) else { NSSound.beep(); return }
+            let out = Exporter.output(img, scale: entry.scale, at1x: ExportOptions.current.saveAt1x)
+            Exporter.saveWithPanel(out.image, scale: out.scale)
+            Self.reactivate(previous)
+        case .edit:
+            edit(entry, returnTo: previous)
+        case .delete:
+            history.delete(entry.id)
+        }
+    }
+
+    /// 在光标所在的屏幕上重新编辑一条历史截图
+    func edit(_ entry: HistoryEntry, returnTo previous: NSRunningApplication? = nil) {
+        guard !isBusy, let base = history.base(for: entry) else { return }
+        let mouse = NSEvent.mouseLocation
+        guard let screen = NSScreen.screens.first(where: { $0.frame.contains(mouse) }) ?? NSScreen.main,
+              let ctx = HistoryEditContext(entry: entry, base: base, screen: screen) else { return }
+        let s = CaptureSession(snapshots: [ctx.snapshot], windowList: [], elementDetection: .off, editContext: ctx,
+                               returnFocus: { Self.reactivate(previous) },
+                               onFinish: { [weak self] in self?.session = nil })
+        s.history = history
+        session = s
+        s.start()
     }
 
     /// 权限预检通过、真抓屏却被系统拒绝（比如授权后还没重启应用），要按权限问题处理。
@@ -98,6 +191,13 @@ final class CaptureSession {
     /// 块级识别（应用内的弹出对话框）的来源。真正的 resolver 由每块屏幕的覆盖层各建一个，
     /// 因为识别要看那块屏幕自己的冻结截图。
     let elementDetection: ElementDetection
+    /// 非 nil 表示这是一次重新编辑历史截图，而不是新截图
+    let editContext: HistoryEditContext?
+    /// 完成的截图交给它入库；nil 表示不记历史（测试默认如此，免得写进真实目录）
+    var history: HistoryStore?
+    /// 覆盖层右上角的历史按钮点下去要做的事。nil 表示不显示这个按钮
+    var onOpenHistory: (() -> Void)?
+    var historyTooltip = L10n.t("截图历史")
 
     /// 块级识别从哪来。开关只在会话开始时读一次就定了。
     enum ElementDetection {
@@ -126,6 +226,7 @@ final class CaptureSession {
     init(snapshots: [ScreenSnapshot],
          windowList: [LocatableWindow]? = nil,
          elementDetection: ElementDetection = .automatic,
+         editContext: HistoryEditContext? = nil,
          returnFocus: @escaping () -> Void = {},
          onFinish: @escaping () -> Void) {
         self.snapshots = snapshots
@@ -133,6 +234,7 @@ final class CaptureSession {
         self.returnFocus = returnFocus
         self.windowList = windowList ?? WindowLocator.onScreenWindows()
         self.elementDetection = elementDetection
+        self.editContext = editContext
     }
 
     /// 光标所在的最上层窗口（裁到该屏），带 pid 供元素级识别使用。
@@ -176,19 +278,29 @@ final class CaptureSession {
         returnFocus()
     }
 
-    func complete(with image: CGImage, scale: CGFloat) {
+    /// 关掉覆盖层去打开历史面板。焦点不还给原来的应用：面板马上要拿走它
+    func openHistory() {
+        guard let onOpenHistory else { return }
+        teardown()
+        onOpenHistory()
+    }
+
+    func complete(with image: CGImage, scale: CGFloat, archive: HistoryArchive? = nil) {
         lastImage = image
         teardown()
         copy(image, scale: scale)
         if Preferences.playSound { Exporter.playCaptureSound() }
         returnFocus()
+        // 入库放在焦点归还之后：用户此刻多半正要 ⌘V，别让这点活挡在前面
+        if let archive { history?.record(archive, final: image) }
     }
 
-    func save(_ image: CGImage, scale: CGFloat) {
+    func save(_ image: CGImage, scale: CGFloat, archive: HistoryArchive? = nil) {
         lastImage = image
         teardown()
         // 先放进剪贴板：保存框取消或写入失败时，截图也不会丢
         copy(image, scale: scale)
+        if let archive { history?.record(archive, final: image) }
         let file = Exporter.output(image, scale: scale, at1x: exportOptions.saveAt1x)
         Exporter.saveWithPanel(file.image, scale: file.scale)
         returnFocus()

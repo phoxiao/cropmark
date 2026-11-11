@@ -11,6 +11,9 @@ final class OverlayView: NSView {
     private let hoverResolver: HoverResolver?
     private let store = AnnotationStore()
     private let toolbar = ToolbarPanel()
+    /// 悬停阶段右上角的「截图历史」按钮。只在光标所在的这块屏幕、还没框选时出现
+    private var historyButton: HistoryButton?
+    private var pointerInside = false
 
     private var tool: ToolKind?
     private var style = Style(color: Palette.colors[0], thickness: .medium)
@@ -73,9 +76,29 @@ final class OverlayView: NSView {
             case .done: self.finish(save: false)
             }
         }
-        selection.hoverRect = b
+        if let edit = session.editContext {
+            // 重新编辑历史截图：选区就是那张图，标注从存档载入，工具栏直接出来
+            selection.lock(to: edit.placement)
+            store.load(edit.viewAnnotations)
+            toolbar.isHidden = false
+            layoutToolbar()
+        } else {
+            selection.hoverRect = b
+            if session.onOpenHistory != nil {
+                let button = HistoryButton(tooltip: session.historyTooltip) { [weak self] in self?.session?.openHistory() }
+                button.frame = HistoryButton.frame(in: b, topInset: snapshot.screen.frame.maxY - snapshot.screen.visibleFrame.maxY)
+                addSubview(button)
+                historyButton = button
+                pointerInside = snapshot.frame.contains(NSEvent.mouseLocation)
+                refreshHistoryButton()
+            }
+        }
     }
     required init?(coder: NSCoder) { fatalError() }
+
+    private func refreshHistoryButton() {
+        historyButton?.isHidden = bystander || selection.hasSelection || !pointerInside
+    }
 
     // MARK: 测试钩子
 
@@ -91,6 +114,9 @@ final class OverlayView: NSView {
     var canRedoForTesting: Bool { store.canRedo }
     func applyStyleForTesting(_ s: Style) { applyStyle(s) }
     var visibleAnnotationCountForTesting: Int { visibleItems.count }
+    var isHistoryButtonVisible: Bool { historyButton.map { !$0.isHidden } ?? false }
+    var historyButtonFrame: CGRect? { historyButton?.frame }
+    func setPointerInsideForTesting(_ v: Bool) { pointerInside = v; refreshHistoryButton() }
 
     // MARK: 旁观（其他屏幕已有选区）
 
@@ -99,9 +125,10 @@ final class OverlayView: NSView {
         selection.hoverRect = nil
         lastHoverPoint = nil
         hoverResolver?.invalidate()
+        refreshHistoryButton()
         needsDisplay = true
     }
-    func leaveBystander() { bystander = false; needsDisplay = true }
+    func leaveBystander() { bystander = false; refreshHistoryButton(); needsDisplay = true }
 
     // MARK: 坐标换算
 
@@ -150,6 +177,8 @@ final class OverlayView: NSView {
     // MARK: 鼠标
 
     override func mouseEntered(with event: NSEvent) {
+        pointerInside = true
+        refreshHistoryButton()
         guard !bystander else { return }
         if session?.activeView == nil { window?.makeKey() }
         let p = convert(event.locationInWindow, from: nil)
@@ -157,6 +186,8 @@ final class OverlayView: NSView {
         cursor(at: p).set()
     }
     override func mouseExited(with event: NSEvent) {
+        pointerInside = false
+        refreshHistoryButton()
         guard !selection.hasSelection else { return }
         selection.hoverRect = nil
         lastHoverPoint = nil
@@ -196,7 +227,7 @@ final class OverlayView: NSView {
         }
         // ③ 无工具时选区把手优先于标注本体。标注整块可点之后，一个盖住选区角的大框
         //    会让选区彻底拉不动；把手是画出来的白点，用户看得见就必须点得中
-        if tool == nil, SelectionModel.handle(at: p, of: r) != nil {
+        if tool == nil, !selection.isLocked, SelectionModel.handle(at: p, of: r) != nil {
             beginSelectionGesture(at: p)
             return
         }
@@ -223,6 +254,7 @@ final class OverlayView: NSView {
 
     /// 选区自己的按下手势：新建、整体移动、拉把手。
     private func beginSelectionGesture(at p: CGPoint) {
+        guard !selection.isLocked else { return }
         let hadSelection = selection.hasSelection
         selection.mouseDown(at: p)
         if case .moving = selection.phase { NSCursor.closedHand.set() }
@@ -234,6 +266,7 @@ final class OverlayView: NSView {
         } else {
             toolbar.isHidden = true
         }
+        refreshHistoryButton()
         needsDisplay = true
     }
 
@@ -311,6 +344,7 @@ final class OverlayView: NSView {
             continueDrawing(to: p, shift: shift)
         } else {
             selection.mouseDragged(to: p)
+            refreshHistoryButton()
         }
         dragCursor().set()
         needsDisplay = true
@@ -344,6 +378,7 @@ final class OverlayView: NSView {
                 // 把手被拖到零宽/零高，选区消失：标注、旁观状态一起清掉
                 resetSelection()
             }
+            refreshHistoryButton()
         }
         cursor(at: p).set()
         needsDisplay = true
@@ -351,6 +386,8 @@ final class OverlayView: NSView {
 
     override func rightMouseDown(with event: NSEvent) {
         if textEditor != nil { commitTextEditor(); return }
+        // 编辑历史截图时没有「重新框选」可言，右键不做事，免得一下丢掉改了一半的标注
+        if selection.isLocked { return }
         let p = convert(event.locationInWindow, from: nil)
         if bystander {
             // 选区在别的屏幕上：右键清掉它，回到所有屏幕都可框选的状态
@@ -375,6 +412,7 @@ final class OverlayView: NSView {
         tool = nil
         toolbar.isHidden = true
         session?.selectionDidClear()
+        refreshHistoryButton()
         needsDisplay = true
     }
 
@@ -408,12 +446,16 @@ final class OverlayView: NSView {
     }
 
     private func cursor(at p: CGPoint) -> NSCursor {
+        if let b = historyButton, !b.isHidden, b.frame.contains(p) { return .arrow }
+        let locked = selection.isLocked
         guard !bystander, selection.isSelected, let r = selection.rect else { return .crosshair }
         // 顺序要和 mouseDown 一致，否则光标会承诺一件点下去不会发生的事
         if let a = selectedAnnotation, let h = editor.geometry.handle(at: p, of: a) { return Self.cursor(for: h) }
-        if tool == nil, let h = SelectionModel.handle(at: p, of: r) { return Self.resizeCursor(for: h) }
-        guard r.contains(p) else { return .crosshair }
+        if tool == nil, !locked, let h = SelectionModel.handle(at: p, of: r) { return Self.resizeCursor(for: h) }
+        guard r.contains(p) else { return locked ? .arrow : .crosshair }
         if let tool { return tool == .text ? .iBeam : .crosshair }
+        // 锁定的选区挪不动，只有压着标注时才是手形
+        if locked { return editor.geometry.topmost(at: p, in: store.items) != nil ? .openHand : .arrow }
         // 选区内无工具：压着标注是"抓标注"，空白是"挪选区"，都是手形，不用分
         return .openHand
     }
@@ -623,7 +665,9 @@ final class OverlayView: NSView {
 
     private func pixelated(_ t: Thickness) -> CGImage? {
         if let c = pixelCache[t] { return c }
-        let img = Mosaic.pixelate(snapshot.image, blockPixels: Int(t.mosaicBlock * snapshot.scale))
+        // 编辑历史截图时按底图块化，块的大小和位置才和导出一致
+        let img = session?.editContext.map { $0.pixelatedCanvas(t) }
+            ?? Mosaic.pixelate(snapshot.image, blockPixels: Int(t.mosaicBlock * snapshot.scale))
         pixelCache[t] = img
         return img
     }
@@ -642,11 +686,33 @@ final class OverlayView: NSView {
 
     private func finish(save: Bool) {
         commitTextEditor()
-        guard let r = selection.rect, r.width >= 1, r.height >= 1 else { return }
-        guard let img = ImageComposer.compose(snapshot: snapshot, selection: r, annotations: store.items, renderer: renderer) else {
-            session?.cancel(); return
+        guard let r = selection.rect, r.width >= 1, r.height >= 1, let session else { return }
+        let img: CGImage, scale: CGFloat, archive: HistoryArchive?
+        if let edit = session.editContext {
+            // 回到底图坐标系按原始像素合成：缩小显示、换了倍率的屏幕都不影响成品
+            let items = store.items.applying(edit.toBase)
+            guard let out = HistoryComposer.compose(base: edit.base, scale: edit.entry.scale, annotations: items) else {
+                session.cancel(); return
+            }
+            img = out; scale = edit.entry.scale
+            archive = HistoryArchive(base: edit.base, scale: scale, annotations: items, replacing: edit.entry.id)
+        } else {
+            guard let out = ImageComposer.compose(snapshot: snapshot, selection: r, annotations: store.items, renderer: renderer) else {
+                session.cancel(); return
+            }
+            img = out; scale = snapshot.scale
+            archive = session.history.flatMap { _ in historyArchive(selection: r) }
         }
-        if save { session?.save(img, scale: snapshot.scale) } else { session?.complete(with: img, scale: snapshot.scale) }
+        if save { session.save(img, scale: scale, archive: archive) } else { session.complete(with: img, scale: scale, archive: archive) }
+    }
+
+    /// 新截图的存档：选区里不带标注的底图，标注平移到以选区左上角为原点
+    private func historyArchive(selection r: CGRect) -> HistoryArchive? {
+        guard let base = ImageComposer.compose(snapshot: snapshot, selection: r, annotations: [], renderer: renderer) else { return nil }
+        let px = ImageComposer.pixelRect(for: r, scale: snapshot.scale, imageSize: CGSize(width: snapshot.image.width, height: snapshot.image.height))
+        let origin = CGPoint(x: px.minX / snapshot.scale, y: px.minY / snapshot.scale)
+        let items = store.items.applying(CGAffineTransform(translationX: -origin.x, y: -origin.y))
+        return HistoryArchive(base: base, scale: snapshot.scale, annotations: items, replacing: nil)
     }
 
     // MARK: 绘制
@@ -678,7 +744,7 @@ final class OverlayView: NSView {
         ctx.setLineWidth(selection.hasSelection ? 1.5 : 2)
         ctx.stroke(hole.insetBy(dx: -0.75, dy: -0.75))
 
-        if selection.hasSelection, tool == nil {
+        if selection.hasSelection, tool == nil, !selection.isLocked {
             ctx.setFillColor(NSColor.white.cgColor)
             for (_, hr) in SelectionModel.handleRects(of: hole) {
                 ctx.fillEllipse(in: hr)
@@ -686,7 +752,7 @@ final class OverlayView: NSView {
             }
         }
 
-        if selection.hasSelection || selection.hoverRect != nil {
+        if !selection.isLocked, selection.hasSelection || selection.hoverRect != nil {
             drawSizeLabel(for: hole, in: ctx)
         }
         if let a = selectedAnnotation, let sel = selection.rect {
