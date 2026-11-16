@@ -57,6 +57,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return true
     }
 
+    func applicationWillTerminate(_ notification: Notification) {
+        HistoryStore.shared.flush()
+    }
+
     private func showSettings() {
         if settingsWindow == nil {
             settingsWindow = SettingsWindowController()

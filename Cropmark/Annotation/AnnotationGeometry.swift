@@ -19,7 +19,7 @@ struct AnnotationGeometry {
     /// 命中容差：描边半宽 + 5 点手指余量。细线(2) 得 6，中(4) 得 7，粗(6) 得 8。
     static func tolerance(_ lineWidth: CGFloat) -> CGFloat { lineWidth / 2 + 5 }
     /// 拉伸的最小边长：不小于线宽，免得粗线把自己缩成一个疙瘩。和新建时的 2×2 下限对得上。
-    static func minSide(_ s: Style) -> CGFloat { max(2, s.thickness.lineWidth) }
+    static func minSide(_ s: Style) -> CGFloat { max(2 * s.viewScale, s.lineWidth) }
     /// 箭头的最小长度，与新建时的下限一致
     static let minArrowLength: CGFloat = 3
 
@@ -27,18 +27,18 @@ struct AnnotationGeometry {
 
     /// 标注实际画出来占据的矩形。选中框和拖动钳制都用它。
     func bounds(of a: Annotation) -> CGRect {
-        let lw = a.style.thickness.lineWidth
+        let lw = a.style.lineWidth
         switch a.shape {
         case .rect(let r), .ellipse(let r):
             return r
         case .arrow(let f, let t):
             // 头部三角会伸到线段两侧之外，要一起算进去
-            let g = ArrowGeometry.build(from: f, to: t, lineWidth: lw)
+            let g = ArrowGeometry.build(from: f, to: t, lineWidth: a.style.thickness.lineWidth, scale: a.style.viewScale)
             return Self.box(of: [f, t] + g.head).insetBy(dx: -lw / 2, dy: -lw / 2)
         case .pen(let pts):
             return Self.box(of: pts).insetBy(dx: -lw / 2, dy: -lw / 2)
         case .mosaic(let pts):
-            let hw = a.style.thickness.mosaicBrush / 2
+            let hw = a.style.mosaicBrush / 2
             return Self.box(of: pts).insetBy(dx: -hw, dy: -hw)
         case .text(let s, let origin, let maxWidth):
             return CGRect(origin: origin, size: measureText(s, a.style, maxWidth))
@@ -57,7 +57,7 @@ struct AnnotationGeometry {
     /// 这一点是否落在标注上。按形状精确判定，不用外接矩形——
     /// 否则一个大红框会把画在它内部的所有标注的点击全吃掉。
     func hits(_ a: Annotation, at p: CGPoint) -> Bool {
-        let lw = a.style.thickness.lineWidth
+        let lw = a.style.lineWidth
         let t = Self.tolerance(lw)
         switch a.shape {
         case .rect(let r):
@@ -74,7 +74,7 @@ struct AnnotationGeometry {
         case .mosaic(let pts):
             // 涂抹区域就是"到折线距离 ≤ 半个笔宽"，和渲染时的圆头描边严格一致。
             // 笔宽本来就有 14~32 点，不用再加余量，否则会吃掉旁边的标注
-            return Self.distance(p, polyline: pts) <= a.style.thickness.mosaicBrush / 2
+            return Self.distance(p, polyline: pts) <= a.style.mosaicBrush / 2
         case .text:
             // 文字是实心的，整块算命中，再外扩一点方便抓
             return bounds(of: a).insetBy(dx: -4, dy: -3).contains(p)
@@ -86,7 +86,7 @@ struct AnnotationGeometry {
     /// 箭头、画笔、马赛克本来就只有描边，两轮同结果；
     /// 文字虽然也是整块，但那整块就是它的墨迹所在，不是兜底——所以它也该赢第一轮。
     func hitsStroke(_ a: Annotation, at p: CGPoint) -> Bool {
-        let t = Self.tolerance(a.style.thickness.lineWidth)
+        let t = Self.tolerance(a.style.lineWidth)
         switch a.shape {
         case .rect(let r): return Self.hitsBorder(r, at: p, tolerance: t)
         case .ellipse(let r): return Self.hitsEllipse(r, at: p, tolerance: t)
@@ -98,7 +98,8 @@ struct AnnotationGeometry {
     /// 否则最后框的那个大圈，会把它内部先画的箭头、文字全吃掉，
     /// 而"先标注细节、最后框个总的圈起来"恰恰是很常见的顺序。
     func topmost(at p: CGPoint, in items: [Annotation]) -> Annotation? {
-        items.last { hitsStroke($0, at: p) } ?? items.last { hits($0, at: p) }
+        let item = items.last { hitsStroke($0, at: p) } ?? items.last { hits($0, at: p) }
+        return item?.isBakedMosaic == true ? nil : item
     }
 
     /// 描边带：外扩 t 命中、内缩 t 不命中。
@@ -209,9 +210,9 @@ struct AnnotationGeometry {
         case (.ellipse(let r), .box(let bh)):
             out.shape = .ellipse(resizedBox(r, bh, to: p, shift: shift, minSide: m))
         case (.arrow(let f, let t), .start):
-            out.shape = .arrow(from: movedEnd(p, opposite: t, shift: shift, fallback: f), to: t)
+            out.shape = .arrow(from: movedEnd(p, opposite: t, shift: shift, fallback: f, scale: a.style.viewScale), to: t)
         case (.arrow(let f, let t), .end):
-            out.shape = .arrow(from: f, to: movedEnd(p, opposite: f, shift: shift, fallback: t))
+            out.shape = .arrow(from: f, to: movedEnd(p, opposite: f, shift: shift, fallback: t, scale: a.style.viewScale))
         default:
             break
         }
@@ -232,12 +233,13 @@ struct AnnotationGeometry {
     }
 
     /// 拉箭头的一端：Shift 吸附以另一端为基准，太短就沿当前方向推开，不让它退化成一个点。
-    private static func movedEnd(_ p: CGPoint, opposite o: CGPoint, shift: Bool, fallback: CGPoint) -> CGPoint {
+    private static func movedEnd(_ p: CGPoint, opposite o: CGPoint, shift: Bool, fallback: CGPoint, scale: CGFloat) -> CGPoint {
         let q = shift ? ArrowGeometry.snapped(from: o, to: p) : p
         let len = hypot(q.x - o.x, q.y - o.y)
-        guard len < minArrowLength else { return q }
+        let minimum = minArrowLength * scale
+        guard len < minimum else { return q }
         let dir = len > 0 ? CGPoint(x: (q.x - o.x) / len, y: (q.y - o.y) / len) : unit(from: o, to: fallback)
-        return CGPoint(x: o.x + dir.x * minArrowLength, y: o.y + dir.y * minArrowLength)
+        return CGPoint(x: o.x + dir.x * minimum, y: o.y + dir.y * minimum)
     }
 
     private static func unit(from a: CGPoint, to b: CGPoint) -> CGPoint {

@@ -7,12 +7,12 @@ enum ArrowGeometry {
     static func headHalfWidth(lineWidth: CGFloat) -> CGFloat { headLength(lineWidth: lineWidth) * 0.45 }
 
     /// 返回 (杆的终点, 三角形三点)。杆缩短到三角形底边，避免线头穿出。
-    static func build(from a: CGPoint, to b: CGPoint, lineWidth: CGFloat) -> (shaftEnd: CGPoint, head: [CGPoint]) {
+    static func build(from a: CGPoint, to b: CGPoint, lineWidth: CGFloat, scale: CGFloat = 1) -> (shaftEnd: CGPoint, head: [CGPoint]) {
         let dx = b.x - a.x, dy = b.y - a.y
-        let len = max(hypot(dx, dy), 0.001)
+        let len = max(hypot(dx, dy), 0.001 * scale)
         let ux = dx / len, uy = dy / len
-        let hl = min(headLength(lineWidth: lineWidth), len)
-        let hw = headHalfWidth(lineWidth: lineWidth)
+        let hl = min(headLength(lineWidth: lineWidth) * scale, len)
+        let hw = headHalfWidth(lineWidth: lineWidth) * scale
         let base = CGPoint(x: b.x - ux * hl, y: b.y - uy * hl)
         let left = CGPoint(x: base.x - uy * hw, y: base.y + ux * hw)
         let right = CGPoint(x: base.x + uy * hw, y: base.y - ux * hw)

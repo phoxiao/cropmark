@@ -40,6 +40,11 @@ enum Thickness: Int, CaseIterable {
 struct Style: Equatable {
     var color: NSColor
     var thickness: Thickness
+    var viewScale: CGFloat = 1
+
+    var lineWidth: CGFloat { thickness.lineWidth * viewScale }
+    var fontSize: CGFloat { thickness.fontSize * viewScale }
+    var mosaicBrush: CGFloat { thickness.mosaicBrush * viewScale }
 }
 
 enum Palette {
@@ -75,6 +80,8 @@ struct Annotation: Identifiable, Equatable {
     var shape: Shape
     /// 马赛克只用到 thickness，color 由渲染器忽略
     var style: Style
+    /// 历史底图里的马赛克。保留遮挡顺序，禁止选中或移除。
+    var isBakedMosaic = false
 
     /// 马赛克没有颜色可言，工具栏要把色板藏起来
     var isMosaic: Bool { if case .mosaic = shape { return true }; return false }

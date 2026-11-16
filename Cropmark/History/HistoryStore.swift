@@ -1,4 +1,5 @@
 import AppKit
+import Darwin
 
 /// 一条历史截图的元数据。底图、成品图、缩略图是同目录下的三个 PNG。
 /// 标注坐标相对底图左上角，单位是截图时那块屏幕的点（像素 ÷ scale）。
@@ -9,10 +10,18 @@ struct HistoryEntry: Codable, Identifiable, Equatable {
     let scale: CGFloat
     let pixelWidth: Int
     let pixelHeight: Int
-    /// 不含马赛克：马赛克在存档时已经烧进底图
+    /// 马赛克像素已烧进底图，这里只保留路径和图层顺序。
     var annotations: [StoredAnnotation]
 
     var pointSize: CGSize { CGSize(width: CGFloat(pixelWidth) / scale, height: CGFloat(pixelHeight) / scale) }
+
+    var editAnnotations: [Annotation] {
+        annotations.compactMap { stored in
+            guard var annotation = stored.annotation else { return nil }
+            annotation.isBakedMosaic = annotation.isMosaic
+            return annotation
+        }
+    }
 }
 
 /// 标注的落盘格式。Annotation 本身带 NSColor、id 不可解码，不直接做 Codable。
@@ -83,19 +92,34 @@ extension Annotation.Shape {
 }
 
 extension Array where Element == Annotation {
-    func applying(_ t: CGAffineTransform) -> [Annotation] {
-        map { Annotation(shape: $0.shape.applying(t), style: $0.style) }
+    func applying(_ t: CGAffineTransform, styleScale: CGFloat = 1) -> [Annotation] {
+        map {
+            var annotation = $0
+            annotation.shape = annotation.shape.applying(t)
+            annotation.style.viewScale = styleScale
+            return annotation
+        }
     }
 }
 
-/// 一次完成的截图交给历史的东西：不带标注的底图，加上相对底图的标注。
+/// 已安全处理打码的底图，以及相对底图的标注和遮挡顺序。
 struct HistoryArchive {
     let base: CGImage
     let scale: CGFloat
-    /// 相对底图左上角，单位点。可以含马赛克，入库时烧进底图
+    /// 相对底图左上角，单位点。
     let annotations: [Annotation]
     /// 重新编辑的那条；nil 表示新截图
     let replacing: UUID?
+
+    init?(scale: CGFloat, annotations: [Annotation], replacing: UUID?, toBase: CGAffineTransform = .identity,
+          renderBase: ([Annotation]) -> CGImage?) {
+        let newMosaics = annotations.filter { $0.isMosaic && !$0.isBakedMosaic }
+        guard let base = renderBase(newMosaics) else { return nil }
+        self.base = base
+        self.scale = scale
+        self.annotations = toBase.isIdentity ? annotations : annotations.applying(toBase)
+        self.replacing = replacing
+    }
 }
 
 /// 在「底图坐标系」里合成：原点在底图左上角、y 向下、单位点。
@@ -112,14 +136,14 @@ enum HistoryComposer {
         let size = CGSize(width: CGFloat(w) / scale, height: CGFloat(h) / scale)
         AnnotationRenderer.drawImage(base, in: CGRect(origin: .zero, size: size), ctx: ctx)
         var cache: [Thickness: CGImage] = [:]
-        let renderer = AnnotationRenderer(screenSize: size) { t in
+        let renderer = AnnotationRenderer(screenSize: size, bakedMosaicImage: { base }) { t in
             if let c = cache[t] { return c }
             let img = Mosaic.pixelate(base, blockPixels: Int(t.mosaicBlock * scale))
             cache[t] = img
             return img
         }
         ctx.clip(to: CGRect(origin: .zero, size: size))
-        renderer.draw(annotations, in: ctx)
+        guard renderer.draw(annotations, in: ctx) else { return nil }
         return ctx.makeImage()
     }
 
@@ -152,8 +176,9 @@ final class HistoryStore {
 
     let directory: URL
     private let limit: () -> Int
-    /// 新的在前
-    private(set) var entries: [HistoryEntry] = []
+    /// 新的在前。写入成功前保留超出上限的旧条目，写入失败时可以恢复列表。
+    private var allEntries: [HistoryEntry]
+    var entries: [HistoryEntry] { Array(allEntries.prefix(max(limit(), 0))) }
     private struct Images { let base: CGImage; let final: CGImage; let thumb: CGImage? }
     /// 还在排队写盘的条目
     private var pending: [UUID: Images] = [:]
@@ -167,7 +192,7 @@ final class HistoryStore {
     init(directory: URL, limit: @escaping () -> Int) {
         self.directory = directory
         self.limit = limit
-        entries = Self.load(from: directory)
+        allEntries = Self.load(from: directory, cleaningIncomplete: true)
         prune()
     }
 
@@ -184,51 +209,70 @@ final class HistoryStore {
 
     // MARK: 写
 
-    /// 入库一张截图。final 是已经交给剪贴板的那张成品，原样存下来，「复制」时拿到的就是同一张。
-    /// 马赛克在这里烧进底图：打码的意图就是那块不该留下来，磁盘上不能有一份清晰的原图。
+    /// 入库存档和未经输出缩放的成品。「复制」复用成品，再应用当前输出设置。
     @discardableResult
     func record(_ archive: HistoryArchive, final: CGImage, date: Date = Date()) -> HistoryEntry? {
-        guard isEnabled else { return nil }
-        let mosaics = archive.annotations.filter(\.isMosaic)
-        let base = mosaics.isEmpty ? archive.base
-            : (HistoryComposer.compose(base: archive.base, scale: archive.scale, annotations: mosaics) ?? archive.base)
+        let keep = limit()
+        guard keep > 0 else { return nil }
+        if let id = archive.replacing, !entries.contains(where: { $0.id == id }) { return nil }
+        let base = archive.base
         let entry = HistoryEntry(id: archive.replacing ?? UUID(), date: date, scale: archive.scale,
                                  pixelWidth: base.width, pixelHeight: base.height,
-                                 annotations: archive.annotations.filter { !$0.isMosaic }.map(StoredAnnotation.init))
+                                 annotations: archive.annotations.map(StoredAnnotation.init))
         let thumb = HistoryComposer.thumbnail(final, maxPixels: Self.thumbnailPixels)
-        entries.removeAll { $0.id == entry.id }
-        entries.insert(entry, at: 0)
+        allEntries.removeAll { $0.id == entry.id }
+        allEntries.insert(entry, at: 0)
 
         generation += 1
         let gen = generation
         pending[entry.id] = Images(base: base, final: final, thumb: thumb)
         pendingGeneration[entry.id] = gen
         let folder = dir(entry.id)
+        let directory = self.directory
         queue.async { [weak self] in
-            Self.write(entry, base: base, final: final, thumb: thumb, to: folder)
+            let committed: HistoryEntry?
+            let pruned: Set<UUID>
+            do {
+                try Self.write(entry, base: base, final: final, thumb: thumb, to: folder)
+                committed = entry
+                pruned = Self.pruneDisk(in: directory, keeping: keep)
+            } catch {
+                NSLog("history write failed: \(error)")
+                committed = Self.loadEntry(from: folder)
+                pruned = []
+            }
             DispatchQueue.main.async { [weak self] in
                 MainActor.assumeIsolated {
-                    guard let self, self.pendingGeneration[entry.id] == gen else { return }
-                    self.pending[entry.id] = nil
-                    self.pendingGeneration[entry.id] = nil
+                    guard let self else { return }
+                    let previous = self.entries
+                    if self.pendingGeneration[entry.id] == gen {
+                        self.pending[entry.id] = nil
+                        self.pendingGeneration[entry.id] = nil
+                        if committed != entry {
+                            self.allEntries.removeAll { $0.id == entry.id }
+                            if let committed { self.allEntries.append(committed) }
+                            self.allEntries.sort { $0.date > $1.date }
+                        }
+                    }
+                    self.allEntries.removeAll { pruned.contains($0.id) && self.pending[$0.id] == nil }
+                    if self.entries != previous { self.onChange?() }
                 }
             }
         }
-        prune()
         onChange?()
         return entry
     }
 
     func delete(_ id: UUID) {
-        guard entries.contains(where: { $0.id == id }) else { return }
-        entries.removeAll { $0.id == id }
+        guard allEntries.contains(where: { $0.id == id }) else { return }
+        allEntries.removeAll { $0.id == id }
         drop([id])
         onChange?()
     }
 
     func clear() {
-        let ids = entries.map(\.id)
-        entries.removeAll()
+        let ids = allEntries.map(\.id)
+        allEntries.removeAll()
         drop(ids)
         // 顺手扫掉目录里认不出来的残留（比如写到一半被杀掉的那条）
         let folder = directory
@@ -239,14 +283,14 @@ final class HistoryStore {
     /// 按当前上限删掉最旧的。设置里把数量调小时也调它，磁盘上的条数要立刻和设置一致
     func prune() {
         let keep = max(limit(), 0)
-        guard entries.count > keep else { return }
-        let extra = entries[keep...].map(\.id)
-        entries.removeLast(entries.count - keep)
+        guard allEntries.count > keep else { return }
+        let extra = allEntries[keep...].map(\.id)
+        allEntries.removeLast(allEntries.count - keep)
         drop(extra)
         onChange?()
     }
 
-    /// 等后台写盘排空。测试用
+    /// 正常退出前排空写入和删除任务。
     func flush() { queue.sync {} }
 
     // MARK: 内部
@@ -259,34 +303,63 @@ final class HistoryStore {
         queue.async { for f in folders { try? FileManager.default.removeItem(at: f) } }
     }
 
-    nonisolated private static func write(_ entry: HistoryEntry, base: CGImage, final: CGImage, thumb: CGImage?, to folder: URL) {
+    nonisolated private static func write(_ entry: HistoryEntry, base: CGImage, final: CGImage, thumb: CGImage?,
+                                         to folder: URL) throws {
         let fm = FileManager.default
-        do {
-            // 截图里什么都可能有，目录只给本人读写
-            try fm.createDirectory(at: folder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-            try? fm.setAttributes([.posixPermissions: 0o700], ofItemAtPath: folder.deletingLastPathComponent().path)
-            if let d = Exporter.pngData(base) { try d.write(to: folder.appendingPathComponent("base.png"), options: .atomic) }
-            if let d = Exporter.pngData(final) { try d.write(to: folder.appendingPathComponent("final.png"), options: .atomic) }
-            if let thumb, let d = Exporter.pngData(thumb) { try d.write(to: folder.appendingPathComponent("thumb.png"), options: .atomic) }
-            // entry.json 最后写：读的时候以它为准，图片没写全的条目不会被认出来
-            let enc = JSONEncoder()
-            try enc.encode(entry).write(to: folder.appendingPathComponent("entry.json"), options: .atomic)
-        } catch {
-            NSLog("history write failed: \(error)")
+        let parent = folder.deletingLastPathComponent()
+        let staged = parent.appendingPathComponent(".\(UUID().uuidString)", isDirectory: true)
+        // 在同一个文件系统里写完整目录，再一次性切换。失败时，原条目的文件仍然配套。
+        try fm.createDirectory(at: parent, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        try fm.setAttributes([.posixPermissions: 0o700], ofItemAtPath: parent.path)
+        try fm.createDirectory(at: staged, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
+        defer { try? fm.removeItem(at: staged) }
+        for (name, image) in [("base.png", base), ("final.png", final)] {
+            guard let data = Exporter.pngData(image) else { throw CocoaError(.fileWriteUnknown) }
+            try data.write(to: staged.appendingPathComponent(name))
+        }
+        if let thumb, let data = Exporter.pngData(thumb) {
+            try data.write(to: staged.appendingPathComponent("thumb.png"))
+        }
+        try JSONEncoder().encode(entry).write(to: staged.appendingPathComponent("entry.json"))
+        let flags = fm.fileExists(atPath: folder.path) ? RENAME_SWAP : RENAME_EXCL
+        guard renameatx_np(AT_FDCWD, staged.path, AT_FDCWD, folder.path, UInt32(flags)) == 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
         }
     }
 
-    private static func load(from directory: URL) -> [HistoryEntry] {
+    nonisolated private static func pruneDisk(in directory: URL, keeping count: Int) -> Set<UUID> {
+        var removed: Set<UUID> = []
+        for entry in load(from: directory).dropFirst(count) {
+            let folder = directory.appendingPathComponent(entry.id.uuidString, isDirectory: true)
+            do {
+                try FileManager.default.removeItem(at: folder)
+                removed.insert(entry.id)
+            } catch {
+                NSLog("history prune failed: \(error)")
+            }
+        }
+        return removed
+    }
+
+    nonisolated private static func loadEntry(from folder: URL) -> HistoryEntry? {
+        let fm = FileManager.default
+        guard let data = try? Data(contentsOf: folder.appendingPathComponent("entry.json")),
+              let entry = try? JSONDecoder().decode(HistoryEntry.self, from: data),
+              entry.id.uuidString == folder.lastPathComponent,
+              entry.scale.isFinite, entry.scale > 0,
+              entry.pixelWidth > 0, entry.pixelHeight > 0,
+              fm.fileExists(atPath: folder.appendingPathComponent("base.png").path),
+              fm.fileExists(atPath: folder.appendingPathComponent("final.png").path) else { return nil }
+        return entry
+    }
+
+    nonisolated private static func load(from directory: URL, cleaningIncomplete: Bool = false) -> [HistoryEntry] {
         let fm = FileManager.default
         guard let dirs = try? fm.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) else { return [] }
-        let dec = JSONDecoder()
         var out: [HistoryEntry] = []
         for d in dirs {
-            guard let data = try? Data(contentsOf: d.appendingPathComponent("entry.json")),
-                  let e = try? dec.decode(HistoryEntry.self, from: data),
-                  e.id.uuidString == d.lastPathComponent,
-                  fm.fileExists(atPath: d.appendingPathComponent("base.png").path) else {
-                try? fm.removeItem(at: d)   // 写到一半或认不出来的目录，留着只会占空间
+            guard let e = loadEntry(from: d) else {
+                if cleaningIncomplete { try? fm.removeItem(at: d) }
                 continue
             }
             out.append(e)

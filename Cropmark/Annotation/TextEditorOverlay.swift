@@ -11,8 +11,8 @@ final class TextEditorOverlay: NSTextView {
 
     /// text 非空即为"重新编辑一条已提交的文字"：预填内容、撑开高度、光标落到末尾。
     static func make(at origin: CGPoint, style: Style, maxWidth: CGFloat, text: String = "") -> TextEditorOverlay {
-        let width = max(maxWidth, 40)
-        let tv = TextEditorOverlay(frame: NSRect(origin: origin, size: CGSize(width: width, height: style.thickness.fontSize * 1.5)))
+        let width = max(maxWidth, (text.isEmpty ? 40 : 1) * style.viewScale)
+        let tv = TextEditorOverlay(frame: NSRect(origin: origin, size: CGSize(width: width, height: style.fontSize * 1.5)))
         tv.maxWidth = width
         tv.isRichText = false
         tv.drawsBackground = false
@@ -33,8 +33,8 @@ final class TextEditorOverlay: NSTextView {
             tv.apply(style: style)   // 设完内容再刷一遍，字体颜色才落到已有文字上
             // 用和渲染同一份测量撑开高度，否则多行文字一进来就被框裁掉
             let h = AnnotationRenderer.textRect(AnnotationRenderer.attributedText(text, style: style),
-                                                origin: origin, maxWidth: width).height
-            tv.frame.size.height = max(h, style.thickness.fontSize * 1.5)
+                                                origin: .zero, maxWidth: width / style.viewScale).height * style.viewScale
+            tv.frame.size.height = max(h, style.fontSize * 1.5)
             tv.setSelectedRange(NSRange(location: (text as NSString).length, length: 0))
         }
         return tv
@@ -50,7 +50,7 @@ final class TextEditorOverlay: NSTextView {
 
     func apply(style: Style) {
         annotationStyle = style
-        font = NSFont.systemFont(ofSize: style.thickness.fontSize, weight: .medium)
+        font = NSFont.systemFont(ofSize: style.fontSize, weight: .medium)
         textColor = style.color
         insertionPointColor = style.color
     }

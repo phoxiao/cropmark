@@ -47,7 +47,10 @@ final class HistoryTests: XCTestCase {
     }
 
     private func archive(_ annotations: [Annotation] = [], replacing: UUID? = nil, base: CGImage? = nil) -> HistoryArchive {
-        HistoryArchive(base: base ?? image(), scale: 1, annotations: annotations, replacing: replacing)
+        let base = base ?? image()
+        return HistoryArchive(scale: 1, annotations: annotations, replacing: replacing) { mosaics in
+            mosaics.isEmpty ? base : HistoryComposer.compose(base: base, scale: 1, annotations: mosaics)
+        }!
     }
 
     private let style = Style(color: Palette.colors[2], thickness: .thick)
@@ -136,6 +139,27 @@ final class HistoryTests: XCTestCase {
         XCTAssertEqual(makeStore().entries.map(\.id), [a.id, b.id])
     }
 
+    func testFailedReplacementKeepsOriginalFilesAndMetadata() async throws {
+        let store = makeStore()
+        let original = try XCTUnwrap(store.record(archive(), final: image()))
+        store.flush()
+        let newBase = image(200, 150)
+        // JSON 编码失败发生在新图写入后，原条目必须仍然完整。
+        let invalidDate = Date(timeIntervalSinceReferenceDate: .infinity)
+        store.record(archive(replacing: original.id, base: newBase), final: newBase, date: invalidDate)
+        store.flush()
+        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+            DispatchQueue.main.async { done.resume() }
+        }
+
+        XCTAssertEqual(store.entries, [original])
+        let reopened = makeStore()
+        XCTAssertEqual(reopened.entries, [original])
+        XCTAssertEqual(reopened.base(for: original)?.width, 400)
+        XCTAssertEqual(reopened.final(for: original)?.width, 400)
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: dir.path), [original.id.uuidString])
+    }
+
     func testDeleteAndClear() throws {
         let store = makeStore()
         let a = try XCTUnwrap(store.record(archive(), final: image()))
@@ -151,7 +175,7 @@ final class HistoryTests: XCTestCase {
         XCTAssertTrue(makeStore().entries.isEmpty)
     }
 
-    /// 打码的意图就是那块不该留下来：底图里马赛克已经烧进去，标注列表里没有它
+    /// 底图烧入马赛克，路径仅用于恢复遮挡顺序。
     func testMosaicIsBakedIntoBase() throws {
         let store = makeStore()
         // 一条横穿红蓝分界的马赛克，块够大，分界处的块会被平均成紫色
@@ -159,7 +183,8 @@ final class HistoryTests: XCTestCase {
                                 style: Style(color: .black, thickness: .thick))
         let rect = Annotation(shape: .rect(CGRect(x: 10, y: 10, width: 40, height: 40)), style: style)
         let e = try XCTUnwrap(store.record(archive([mosaic, rect]), final: image()))
-        XCTAssertEqual(e.annotations.map(\.kind), [.rect])
+        XCTAssertEqual(e.annotations.map(\.kind), [.mosaic, .rect])
+        XCTAssertTrue(e.editAnnotations[0].isBakedMosaic)
         store.flush()
         let base = try XCTUnwrap(makeStore().base(for: e))
         let original = image()
@@ -167,6 +192,41 @@ final class HistoryTests: XCTestCase {
         for x in stride(from: 190, through: 210, by: 1) where pixel(base, x: x, y: 150) != pixel(original, x: x, y: 150) { changed = true }
         XCTAssertTrue(changed, "马赛克区域的底图像素必须和原图不同")
         XCTAssertEqual(pixel(base, x: 20, y: 280), pixel(original, x: 20, y: 280), "马赛克以外不动")
+    }
+
+    func testMosaicRenderFailureAbortsExportAndArchive() {
+        let base = image()
+        let screen = NSScreen.screens[0]
+        let selection = CGRect(x: 0, y: 0, width: base.width, height: base.height)
+        let snapshot = ScreenSnapshot(screen: screen, frame: selection, scale: 1, image: base)
+        let renderer = AnnotationRenderer(screenSize: selection.size) { _ in nil }
+        let mosaic = Annotation(shape: .mosaic([CGPoint(x: 200, y: 150)]), style: style)
+
+        XCTAssertNil(ImageComposer.compose(snapshot: snapshot, selection: selection, annotations: [mosaic], renderer: renderer))
+        XCTAssertNil(HistoryArchive(scale: 1, annotations: [mosaic], replacing: nil) { mosaics in
+            ImageComposer.compose(snapshot: snapshot, selection: selection, annotations: mosaics, renderer: renderer)
+        })
+    }
+
+    func testBakedMosaicKeepsItsLayerOnReopen() throws {
+        let store = makeStore()
+        let base = image()
+        let earlier = Annotation(shape: .pen([CGPoint(x: 100, y: 150), CGPoint(x: 300, y: 150)]),
+                                 style: Style(color: .green, thickness: .thick))
+        let mosaic = Annotation(shape: .mosaic([CGPoint(x: 200, y: 130), CGPoint(x: 200, y: 170)]), style: style)
+        let later = Annotation(shape: .pen([CGPoint(x: 200, y: 150), CGPoint(x: 200, y: 170)]),
+                                style: Style(color: .white, thickness: .thin))
+        let annotations = [earlier, mosaic, later]
+        let final = try XCTUnwrap(HistoryComposer.compose(base: base, scale: 1, annotations: annotations))
+        let entry = try XCTUnwrap(store.record(archive(annotations, base: base), final: final))
+        store.flush()
+
+        let reopened = makeStore()
+        let saved = try XCTUnwrap(reopened.entries.first)
+        let savedBase = try XCTUnwrap(reopened.base(for: entry))
+        XCTAssertNil(AnnotationGeometry.appKit().topmost(at: CGPoint(x: 192, y: 150), in: saved.editAnnotations))
+        let recomposed = try XCTUnwrap(HistoryComposer.compose(base: savedBase, scale: 1, annotations: saved.editAnnotations))
+        XCTAssertEqual(Exporter.pngData(recomposed), Exporter.pngData(final))
     }
 
     // MARK: 摆放
@@ -182,6 +242,24 @@ final class HistoryTests: XCTestCase {
         XCTAssertLessThan(big.k, 1)
         XCTAssertLessThanOrEqual(big.rect.width, 1000 - HistoryEditContext.margin * 2)
         XCTAssertEqual(big.rect.width / big.rect.height, 2, accuracy: 0.01)
+    }
+
+    func testScaledEditPreservesAnnotationMetricsAndTextWrapping() throws {
+        let text = Annotation(shape: .text("This label wraps onto several lines", origin: CGPoint(x: 50, y: 20), maxWidth: 130), style: style)
+        let base = image(600, 300)
+        let entry = try XCTUnwrap(makeStore().record(archive([text], base: base), final: base))
+        let context = try XCTUnwrap(HistoryEditContext(entry: entry, base: base, screen: NSScreen.screens[0],
+                                                       frame: CGRect(x: 0, y: 0, width: 396, height: 300), scale: 2, topInset: 0))
+        let preview = try XCTUnwrap(context.viewAnnotations.first)
+        let geometry = AnnotationGeometry.appKit()
+
+        XCTAssertEqual(context.k, 0.5)
+        XCTAssertEqual(preview.style.fontSize, 12)
+        XCTAssertEqual(preview.style.lineWidth, 3)
+        XCTAssertEqual(preview.style.mosaicBrush, 16)
+        XCTAssertEqual(geometry.bounds(of: preview), geometry.bounds(of: text).applying(context.toView))
+        XCTAssertEqual([preview].applying(context.toBase).first?.shape, text.shape)
+        XCTAssertEqual([preview].applying(context.toBase).first?.style, style)
     }
 
     // MARK: 覆盖层
@@ -249,8 +327,8 @@ final class HistoryTests: XCTestCase {
         let store = makeStore()
         let rect = Annotation(shape: .rect(CGRect(x: 20, y: 20, width: 60, height: 60)), style: style)
         // 200×100 点 @2x 的历史截图
-        let entry = try XCTUnwrap(store.record(HistoryArchive(base: image(400, 200), scale: 2, annotations: [rect], replacing: nil),
-                                               final: image(400, 200)))
+        let originalArchive = try XCTUnwrap(HistoryArchive(scale: 2, annotations: [rect], replacing: nil) { _ in image(400, 200) })
+        let entry = try XCTUnwrap(store.record(originalArchive, final: image(400, 200)))
         let other = try XCTUnwrap(store.record(archive(), final: image()))
         XCTAssertEqual(store.entries.first?.id, other.id)
 
@@ -316,6 +394,31 @@ final class HistoryTests: XCTestCase {
         XCTAssertEqual(store.entries, [entry])
     }
 
+    func testThinHistoryCaptureFinishesBelowOneDisplayPoint() throws {
+        let store = makeStore()
+        let base = image(1200, 1)
+        let entry = try XCTUnwrap(store.record(archive(base: base), final: base))
+        let context = try XCTUnwrap(HistoryEditContext(entry: entry, base: base, screen: NSScreen.screens[0],
+                                                       frame: CGRect(x: 0, y: 0, width: 500, height: 300), scale: 2, topInset: 0))
+        let pb = pasteboard()
+        var finished = false
+        let session = CaptureSession(snapshots: [context.snapshot], windowList: [], elementDetection: .off,
+                                     editContext: context) { finished = true }
+        session.history = store
+        session.pasteboard = pb
+        session.exportOptions = noFile
+        let window = session.makeWindows()[0]
+
+        XCTAssertEqual(context.placement.height, 0.5)
+        window.overlayView.keyDown(with: key(36, chars: "\r", in: window))
+
+        let data = try XCTUnwrap(pb.data(forType: .png))
+        let result = try XCTUnwrap(NSBitmapImageRep(data: data)?.cgImage)
+        XCTAssertTrue(finished)
+        XCTAssertEqual(result.width, 1200)
+        XCTAssertEqual(result.height, 1)
+    }
+
     /// 右上角按钮：只在悬停阶段、光标在这块屏幕时出现；点下去收起覆盖层并转去历史面板
     func testHistoryButtonVisibilityAndAction() throws {
         let snap = ScreenSnapshot(screen: NSScreen.screens[0], frame: CGRect(x: 0, y: 0, width: 400, height: 300), scale: 1, image: image())
@@ -373,12 +476,23 @@ final class HistoryTests: XCTestCase {
         XCTAssertTrue(button.subviews.allSatisfy { $0.layer?.animationKeys()?.isEmpty ?? true })
     }
 
-    func testNoHistoryButtonWhenDisabled() {
+    func testDisabledHistoryStillCopiesCapture() {
+        limit = 0
+        let store = makeStore()
         let snap = ScreenSnapshot(screen: NSScreen.screens[0], frame: CGRect(x: 0, y: 0, width: 400, height: 300), scale: 1, image: image())
         let session = CaptureSession(snapshots: [snap], windowList: [], elementDetection: .off) {}
-        let view = session.makeWindows()[0].overlayView
+        let pb = pasteboard()
+        session.history = store
+        session.pasteboard = pb
+        session.exportOptions = noFile
+        let window = session.makeWindows()[0]
+        let view = window.overlayView
         view.setPointerInsideForTesting(true)
         XCTAssertFalse(view.isHistoryButtonVisible)
+        drag(view, from: CGPoint(x: 10, y: 10), to: CGPoint(x: 100, y: 100), in: window)
+        view.keyDown(with: key(36, chars: "\r", in: window))
+        XCTAssertNotNil(pb.data(forType: .png))
+        XCTAssertTrue(store.entries.isEmpty)
     }
 
     // MARK: 面板

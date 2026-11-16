@@ -32,7 +32,7 @@ enum ImageComposer {
         let screenRect = CGRect(x: 0, y: 0, width: CGFloat(base.width) / scale, height: CGFloat(base.height) / scale)
         AnnotationRenderer.drawImage(base, in: screenRect, ctx: ctx)
         ctx.clip(to: CGRect(x: px.minX / scale, y: px.minY / scale, width: px.width / scale, height: px.height / scale))
-        renderer.draw(annotations, in: ctx)
+        guard renderer.draw(annotations, in: ctx) else { return nil }
         return ctx.makeImage()
     }
 }

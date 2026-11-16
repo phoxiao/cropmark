@@ -34,7 +34,10 @@ final class OverlayView: NSView {
     /// 光标移出本屏或进入旁观时清掉，免得拿一个早已失效的点去做命中测试。
     private var lastHoverPoint: CGPoint?
     private var pixelCache: [Thickness: CGImage] = [:]
-    private lazy var renderer = AnnotationRenderer(screenSize: bounds.size) { [weak self] t in self?.pixelated(t) }
+    private var initialHistoryAnnotations: [Annotation]?
+    private lazy var renderer = AnnotationRenderer(screenSize: bounds.size, bakedMosaicImage: { [weak self] in
+        self?.session?.editContext?.snapshot.image
+    }) { [weak self] t in self?.pixelated(t) }
 
     private static let dimColor = NSColor(white: 0, alpha: 0.45)
     /// 尺寸标签和悬停提示共用的胶囊底色
@@ -80,7 +83,10 @@ final class OverlayView: NSView {
         if let edit = session.editContext {
             // 重新编辑历史截图：选区就是那张图，标注从存档载入，工具栏直接出来
             selection.lock(to: edit.placement)
-            store.load(edit.viewAnnotations)
+            let annotations = edit.viewAnnotations
+            initialHistoryAnnotations = annotations
+            store.load(annotations)
+            style.viewScale = edit.k
             toolbar.isHidden = false
             layoutToolbar()
         } else {
@@ -321,7 +327,9 @@ final class OverlayView: NSView {
     }
 
     /// 工具栏改了颜色/粗细：既是下一条要画的样式，也直接作用在当前选中的那条上。
-    private func applyStyle(_ s: Style) {
+    private func applyStyle(_ newStyle: Style) {
+        var s = newStyle
+        s.viewScale = session?.editContext?.k ?? 1
         style = s
         textEditor?.apply(style: s)        // 正在输入的文字
         guard let id = editor.selected else { return }
@@ -621,9 +629,10 @@ final class OverlayView: NSView {
         // 这时把选中还给脚底下那条标注——点在标注上就选中它，点空白才是取消选中
         switch shape {
         case .rect(let r), .ellipse(let r):
-            guard r.width >= 2, r.height >= 2 else { select(downHit); return }
+            let minimum = 2 * style.viewScale
+            guard r.width >= minimum, r.height >= minimum else { select(downHit); return }
         case .arrow(let f, let t):
-            guard hypot(t.x - f.x, t.y - f.y) >= 3 else { select(downHit); return }
+            guard hypot(t.x - f.x, t.y - f.y) >= AnnotationGeometry.minArrowLength * style.viewScale else { select(downHit); return }
         default: break
         }
         let a = Annotation(shape: shape, style: style)
@@ -676,8 +685,12 @@ final class OverlayView: NSView {
     private func pixelated(_ t: Thickness) -> CGImage? {
         if let c = pixelCache[t] { return c }
         // 编辑历史截图时按底图块化，块的大小和位置才和导出一致
-        let img = session?.editContext.map { $0.pixelatedCanvas(t) }
-            ?? Mosaic.pixelate(snapshot.image, blockPixels: Int(t.mosaicBlock * snapshot.scale))
+        let img: CGImage?
+        if let edit = session?.editContext {
+            img = edit.pixelatedCanvas(t)
+        } else {
+            img = Mosaic.pixelate(snapshot.image, blockPixels: Int(t.mosaicBlock * snapshot.scale))
+        }
         pixelCache[t] = img
         return img
     }
@@ -696,33 +709,43 @@ final class OverlayView: NSView {
 
     private func finish(save: Bool) {
         commitTextEditor()
-        guard let r = selection.rect, r.width >= 1, r.height >= 1, let session else { return }
+        guard let r = selection.rect, let session else { return }
         let img: CGImage, scale: CGFloat, archive: HistoryArchive?
+        let keepHistory = session.history?.isEnabled == true
         if let edit = session.editContext {
             // 回到底图坐标系按原始像素合成：缩小显示、换了倍率的屏幕都不影响成品
             let items = store.items.applying(edit.toBase)
-            guard let out = HistoryComposer.compose(base: edit.base, scale: edit.entry.scale, annotations: items) else {
-                session.cancel(); return
+            let previousImage = store.items == initialHistoryAnnotations ? session.history?.final(for: edit.entry) : nil
+            guard let out = previousImage ?? HistoryComposer.compose(base: edit.base, scale: edit.entry.scale, annotations: items) else {
+                NSSound.beep()
+                return
             }
-            img = out; scale = edit.entry.scale
-            archive = HistoryArchive(base: edit.base, scale: scale, annotations: items, replacing: edit.entry.id)
+            img = out
+            scale = edit.entry.scale
+            archive = keepHistory ? HistoryArchive(scale: scale, annotations: items, replacing: edit.entry.id) { mosaics in
+                mosaics.isEmpty ? edit.base : HistoryComposer.compose(base: edit.base, scale: scale, annotations: mosaics)
+            } : nil
         } else {
+            guard r.width >= 1, r.height >= 1 else { return }
             guard let out = ImageComposer.compose(snapshot: snapshot, selection: r, annotations: store.items, renderer: renderer) else {
-                session.cancel(); return
+                NSSound.beep()
+                return
             }
-            img = out; scale = snapshot.scale
-            archive = session.history.flatMap { _ in historyArchive(selection: r) }
+            img = out
+            scale = snapshot.scale
+            archive = keepHistory ? historyArchive(selection: r) : nil
         }
         if save { session.save(img, scale: scale, archive: archive) } else { session.complete(with: img, scale: scale, archive: archive) }
     }
 
-    /// 新截图的存档：选区里不带标注的底图，标注平移到以选区左上角为原点
+    /// 用与成品相同的屏幕像素网格烧入马赛克，标注平移到选区左上角。
     private func historyArchive(selection r: CGRect) -> HistoryArchive? {
-        guard let base = ImageComposer.compose(snapshot: snapshot, selection: r, annotations: [], renderer: renderer) else { return nil }
         let px = ImageComposer.pixelRect(for: r, scale: snapshot.scale, imageSize: CGSize(width: snapshot.image.width, height: snapshot.image.height))
         let origin = CGPoint(x: px.minX / snapshot.scale, y: px.minY / snapshot.scale)
-        let items = store.items.applying(CGAffineTransform(translationX: -origin.x, y: -origin.y))
-        return HistoryArchive(base: base, scale: snapshot.scale, annotations: items, replacing: nil)
+        let toBase = CGAffineTransform(translationX: -origin.x, y: -origin.y)
+        return HistoryArchive(scale: snapshot.scale, annotations: store.items, replacing: nil, toBase: toBase) { mosaics in
+            ImageComposer.compose(snapshot: snapshot, selection: r, annotations: mosaics, renderer: renderer)
+        }
     }
 
     // MARK: 绘制

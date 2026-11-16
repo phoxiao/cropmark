@@ -23,7 +23,7 @@ struct HistoryEditContext {
     var toBase: CGAffineTransform { toView.inverted() }
 
     /// 存档里的标注换算到视图坐标，好直接塞进覆盖层的标注列表
-    var viewAnnotations: [Annotation] { entry.annotations.compactMap(\.annotation).applying(toView) }
+    var viewAnnotations: [Annotation] { entry.editAnnotations.applying(toView, styleScale: k) }
 
     /// 纯几何：在 screenSize（点）里给 pointSize 找位置。顶部让出菜单栏高度，四周留边，
     /// 落点吸附到目标屏幕的像素网格，免得边缘被插值成半透明的一条。
@@ -32,7 +32,8 @@ struct HistoryEditContext {
         let availH = max(screenSize.height - topInset - margin * 2, 1)
         let k = min(1, availW / pointSize.width, availH / pointSize.height)
         let snap = { (v: CGFloat) in (v * scale).rounded() / scale }
-        let w = snap(pointSize.width * k), h = snap(pointSize.height * k)
+        let w = max(snap(pointSize.width * k), 1 / scale)
+        let h = max(snap(pointSize.height * k), 1 / scale)
         let x = snap((screenSize.width - w) / 2)
         let y = snap(topInset + (screenSize.height - topInset - h) / 2)
         return (CGRect(x: x, y: y, width: w, height: h), k)

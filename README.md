@@ -35,11 +35,13 @@ If another app has also claimed `⌃⌘A` (it is the default screenshot shortcut
 
 ## Privacy
 
-Cropmark collects nothing. Screenshots exist only on your clipboard or wherever you chose to save them; the Screen Recording permission is used solely to grab the screen at the moment you press the hotkey.
+Cropmark collects nothing. It uses Screen Recording permission to capture the screen when you start a capture.
 
 The only network request is the update check: once a day it fetches a version manifest (`docs/appcast.xml`) from GitHub. It downloads, never uploads. Cropmark asks whether to enable this on first launch, and you can turn it off in settings at any time.
 
-When "also put a PNG file on the clipboard" is on (the default), each copy writes a PNG into `~/Library/Caches/Cropmark/Clipboard/`, keeping only the 20 most recent. Turn it off in settings if you would rather leave no files behind.
+Screenshot History keeps the five most recent captures by default in `~/Library/Application Support/Cropmark/History/` so you can edit their annotations later. It persists across restarts. To turn it off and delete the existing history, set **Keep recent captures** to 0 in **Settings → Output**.
+
+When **Also put a PNG file on the clipboard** is on (the default), each copy writes a PNG into `~/Library/Caches/Cropmark/Clipboard/`, keeping only the 20 most recent. Turn off this option in **Settings → Output** to stop writing clipboard PNG files.
 
 ## Build from source
 

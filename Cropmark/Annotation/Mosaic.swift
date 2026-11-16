@@ -10,10 +10,10 @@ enum Mosaic {
         let block = max(blockPixels, 1)
         let input = CIImage(cgImage: image)
         guard let filter = CIFilter(name: "CIPixellate") else { return nil }
-        filter.setValue(input, forKey: kCIInputImageKey)
+        filter.setValue(input.clampedToExtent(), forKey: kCIInputImageKey)
         filter.setValue(CGFloat(block), forKey: kCIInputScaleKey)
         filter.setValue(CIVector(x: 0, y: 0), forKey: kCIInputCenterKey)
-        guard let out = filter.outputImage?.clampedToExtent().cropped(to: input.extent) else { return nil }
+        guard let out = filter.outputImage?.cropped(to: input.extent) else { return nil }
         return ciContext.createCGImage(out, from: input.extent)
     }
 }
