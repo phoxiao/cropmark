@@ -256,6 +256,7 @@ final class CaptureSession {
         for w in windows { w.orderFrontRegardless() }
         let under = windows.first { $0.snapshot.frame.contains(mouse) } ?? windows.first
         under?.makeKeyAndOrderFront(nil)
+        under?.overlayView.refreshHistoryButton()
     }
 
     func selectionDidBegin(on view: OverlayView) {

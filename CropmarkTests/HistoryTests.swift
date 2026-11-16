@@ -341,6 +341,38 @@ final class HistoryTests: XCTestCase {
         XCTAssertTrue(opened)
     }
 
+    func testHistoryButtonReplaysOnShowAndStopsOnHide() throws {
+        let snap = ScreenSnapshot(screen: NSScreen.screens[0], frame: CGRect(x: 0, y: 0, width: 600, height: 400),
+                                  scale: 1, image: image(600, 400))
+        let session = CaptureSession(snapshots: [snap], windowList: [], elementDetection: .off) {}
+        session.onOpenHistory = {}
+        let window = session.makeWindows()[0]
+        window.alphaValue = 0
+        window.orderBack(nil)
+        defer { window.orderOut(nil) }
+        let view = window.overlayView
+        let button = try XCTUnwrap(view.subviews.compactMap { $0 as? HistoryButton }.first)
+        view.setPointerInsideForTesting(false)
+        view.setPointerInsideForTesting(true)
+        XCTAssertNotNil(button.layer?.animation(forKey: "historyButtonEntrance"))
+        button.stopEntrance()
+        view.refreshHistoryButton()
+        XCTAssertNil(button.layer?.animation(forKey: "historyButtonEntrance"))
+        view.setPointerInsideForTesting(false)
+        view.setPointerInsideForTesting(true)
+        XCTAssertNotNil(button.layer?.animation(forKey: "historyButtonEntrance"))
+        view.setPointerInsideForTesting(false)
+        XCTAssertNil(button.layer?.animation(forKey: "historyButtonEntrance"))
+    }
+
+    func testHistoryButtonReducedMotionUsesOnlyFade() {
+        let button = HistoryButton(tooltip: "History") {}
+        button.animateEntrance(reduceMotion: true)
+        XCTAssertNotNil(button.layer?.animation(forKey: "historyButtonEntrance"))
+        XCTAssertNil(button.layer?.animation(forKey: "historyButtonScale"))
+        XCTAssertTrue(button.subviews.allSatisfy { $0.layer?.animationKeys()?.isEmpty ?? true })
+    }
+
     func testNoHistoryButtonWhenDisabled() {
         let snap = ScreenSnapshot(screen: NSScreen.screens[0], frame: CGRect(x: 0, y: 0, width: 400, height: 300), scale: 1, image: image())
         let session = CaptureSession(snapshots: [snap], windowList: [], elementDetection: .off) {}
@@ -393,6 +425,43 @@ final class HistoryTests: XCTestCase {
         panel2.onClose = { closed = true }
         panel2.gridForTesting.keyDown(with: key(53, chars: "\u{1b}", in: panel2.window))
         XCTAssertTrue(closed)
+    }
+
+    func testGridFooterActsOnKeyboardSelectionAndDisablesWhenEmpty() throws {
+        let store = makeStore()
+        for i in 0..<5 {
+            store.record(archive(), final: image(), date: Date(timeIntervalSince1970: Double(i)))
+        }
+        let panel = HistoryPanelController(store: store)
+        let grid = panel.gridForTesting
+        let ids = grid.entryIDsForTesting
+        grid.keyDown(with: key(125, chars: "", in: panel.window))
+        XCTAssertEqual(grid.selectedIndex, 3, "下移一行应跨过三张截图")
+        grid.actionButtons[0].performClick(nil)
+        XCTAssertFalse(grid.entryIDsForTesting.contains(ids[3]))
+        XCTAssertEqual(grid.selectedIndex, 3)
+        var copied: UUID?
+        panel.onAction = { action, entry in
+            XCTAssertEqual(action, .copy)
+            copied = entry.id
+        }
+        grid.actionButtons[3].performClick(nil)
+        XCTAssertEqual(copied, ids[4])
+
+        let emptyPanel = HistoryPanelController(store: store)
+        store.clear()
+        XCTAssertTrue(emptyPanel.gridForTesting.actionButtons.allSatisfy { !$0.isEnabled })
+        XCTAssertEqual(emptyPanel.gridForTesting.fittingSize.width, grid.fittingSize.width)
+    }
+
+    func testHistoryEntryButtonUsesFullLabeledHitArea() {
+        var opened = false
+        let entry = HistoryButton(tooltip: "History") { opened = true }
+        let button = entry.subviews.compactMap { $0 as? NSButton }.first
+        XCTAssertEqual(button?.title, L10n.t("截图历史"))
+        XCTAssertGreaterThan(entry.frame.width, 80)
+        button?.performClick(nil)
+        XCTAssertTrue(opened)
     }
 
     func testEmptyPanelRenders() throws {

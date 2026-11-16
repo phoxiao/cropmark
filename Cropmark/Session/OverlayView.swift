@@ -13,6 +13,7 @@ final class OverlayView: NSView {
     private let toolbar = ToolbarPanel()
     /// 悬停阶段右上角的「截图历史」按钮。只在光标所在的这块屏幕、还没框选时出现
     private var historyButton: HistoryButton?
+    private var historyButtonWasVisible = false
     private var pointerInside = false
 
     private var tool: ToolKind?
@@ -96,8 +97,17 @@ final class OverlayView: NSView {
     }
     required init?(coder: NSCoder) { fatalError() }
 
-    private func refreshHistoryButton() {
-        historyButton?.isHidden = bystander || selection.hasSelection || !pointerInside
+    func refreshHistoryButton() {
+        guard let historyButton else { return }
+        historyButton.isHidden = bystander || selection.hasSelection || !pointerInside
+        let visible = !historyButton.isHidden && window?.isVisible == true
+        guard visible != historyButtonWasVisible else { return }
+        historyButtonWasVisible = visible
+        if visible {
+            historyButton.animateEntrance()
+        } else {
+            historyButton.stopEntrance()
+        }
     }
 
     // MARK: 测试钩子
